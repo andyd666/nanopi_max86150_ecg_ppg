@@ -4,24 +4,30 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <wiringPi.h>
-
+#include <max86150_defs.h>
+#include <filework.h>
+#include <peripheral.h>
 
 #define UNUSED(x) ((void)x)
 
-int validate_input(int argc, char **argv) {
-    int i;
-    printf("Hello world!\nargc = %d, argv = ", argc);
 
-    for (i = 0; i < argc; i++) {
-        printf("%s ", argv[i]);
-    }
-    printf("\n");
+int main(int argc, char **argv) {
+    UNUSED(argc);
+    UNUSED(argv);
 
+    init_debug();
+    d_print("retval from init_gpio() - 0x%2x\n", init_gpio());
+
+    close_debug();
     return 0;
 }
 
-int main(int argc, char **argv) {
 
-    return validate_input(argc, argv);
+/*
+static int validate_input(int argc, char **argv) {
+
+
+
+    return 0;
 }
+*/
