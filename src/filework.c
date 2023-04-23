@@ -7,7 +7,7 @@
 #include <stdarg.h>
 
 
-static char *debug_fname = "debug.txt";
+static char *debug_fname = "/tmp/max86150_logs.txt";
 static FILE *debug_file;
 
 
