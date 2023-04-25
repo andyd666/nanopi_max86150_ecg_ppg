@@ -5,6 +5,8 @@
 #ifndef __MAX86150_defs__
 #define __MAX86150_defs__
 
+#include <stdint.h>
+
 #define BYTES_PER_FIFO_READ (3)
 #define BITS_PER_FIFO_READ  (BYTES_PER_FIFO_READ << 3)
 
@@ -103,9 +105,12 @@
 #define MAX86150_BIT_RESET              (1 << 0)
 
 /* PPG Configuration 1          */
-#define MAX86150_BIT_PPG_ADC_RGE        (0x03 << 6)
-#define MAX86150_BIT_PPG_SR             (0x0F << 2)
-#define MAX86150_BIT_PPG_LED_PW         (0x03 << 0)
+#define MAX86150_SHIFT_PPG_ADC_RGE      (6)
+#define MAX86150_SHIFT_PPG_SR           (2)
+#define MAX86150_SHIFT_PPG_LED_PW       (0)
+#define MAX86150_BIT_PPG_ADC_RGE        (0x03 << MAX86150_SHIFT_PPG_ADC_RGE)
+#define MAX86150_BIT_PPG_SR             (0x0F << MAX86150_SHIFT_PPG_SR)
+#define MAX86150_BIT_PPG_LED_PW         (0x03 << MAX86150_SHIFT_PPG_LED_PW)
 
 /* PPG Configuration 1          */
 #define MAX86150_BIT_SMP_AVE            (0x07 << 0)
@@ -137,5 +142,117 @@
 /* Part ID                      */
 /* Full Register                */
 #define MAX86150_PART_ID                (0x1E)
+
+
+#define PPG_SIGNALS_ALLOW_EVERY_SIGNAL  (0x1F)
+typedef enum {
+    none   = 0,
+    ppg1   = 1,
+    ppg2   = 2,
+    pilot1 = 4,
+    pilot2 = 8,
+    ecg    = 16
+} signals;
+
+typedef enum {
+    /* this enum correlates with
+     * FIFO Data Control Register 1  and
+     * FIFO Data Control Register 2  */
+    NONE       = 0,
+    PPG_LED1   = 1,
+    PPG_LED2   = 2,
+    PILOT_LED1 = 5,
+    PILOT_LED2 = 6,
+    ECG        = 9,
+    RESERVED   = 15
+} dcr_slot;
+
+typedef enum {
+    PPG_RGE_UA4  = 0,
+    PPG_RGE_UA8  = 1,
+    PPG_RGE_UA16 = 2,
+    PPG_RGE_UA32 = 3
+}ppg_adc_rge;
+
+typedef enum {
+    PPG_FREQ_INCORRECT = 0,
+    PPG_FREQ_1_10   = 10,
+    PPG_FREQ_1_20   = 20,
+    PPG_FREQ_1_50   = 50,
+    PPG_FREQ_1_84   = 84,
+    PPG_FREQ_1_100  = 100,
+    PPG_FREQ_1_200  = 200,
+    PPG_FREQ_1_400  = 400,
+    PPG_FREQ_1_800  = 800,
+    PPG_FREQ_1_1000 = 1000,
+    PPG_FREQ_1_1600 = 1600,
+    PPG_FREQ_1_3200 = 3200,
+    PPG_FREQ_2_10   = 10,
+    PPG_FREQ_2_20   = 20,
+    PPG_FREQ_2_50   = 50,
+    PPG_FREQ_2_84   = 84,
+    PPG_FREQ_2_100  = 100
+}ppg_sample_per_second;
+
+typedef enum {
+    PPG_SR_INCORRECT = 0xff,
+    PPG_SR_0000 = 0b0000,
+    PPG_SR_0001 = 0b0001,
+    PPG_SR_0010 = 0b0010,
+    PPG_SR_0011 = 0b0011,
+    PPG_SR_0100 = 0b0100,
+    PPG_SR_0101 = 0b0101,
+    PPG_SR_0110 = 0b0110,
+    PPG_SR_0111 = 0b0111,
+    PPG_SR_1000 = 0b1000,
+    PPG_SR_1001 = 0b1001,
+    PPG_SR_1010 = 0b1010,
+    PPG_SR_1011 = 0b1011,
+    PPG_SR_1100 = 0b1100,
+    PPG_SR_1101 = 0b1101,
+    PPG_SR_1110 = 0b1110,
+    PPG_SR_1111 = 0b1111
+}ppg_sample_code;
+
+typedef enum {
+    PPG_PULSE_WIDTH_50US  = 0x0,
+    PPG_PULSE_WIDTH_100US = 0x1,
+    PPG_PULSE_WIDTH_200US = 0x2,
+    PPG_PULSE_WIDTH_400US = 0x3
+}ppg_pulse_width;
+
+typedef enum {
+    PPG_PULSE_PER_SAMPLE_ONE = 1,
+    PPG_PULSE_PER_SAMPLE_TWO = 2
+}ppg_pulses_per_sample;
+
+typedef enum {
+    PPG_SMP_AVE_1 = 0,
+    PPG_SMP_AVE_2 = 1,
+    PPG_SMP_AVE_4 = 2,
+    PPG_SMP_AVE_8 = 3,
+    PPG_SMP_AVE_16 = 4,
+    PPG_SMP_AVE_32 = 5
+}ppg_smp_ave;
+
+
+struct max86150_configuration {
+    /* These parameters are entered by user */
+    int                   sampling_frequency;
+    uint8_t               allowed_signals;
+
+    int                   ppg_sampling_freq;
+    int                   ecg_sampling_freq;
+    int                   ppg_adc_scale;
+    int                   ppg_led_pw;
+    int                   ppg_sample_average;
+
+    /* These values are writen into registers */
+    ppg_adc_rge           ppg_range;
+    ppg_sample_code       ppg_sampling;
+    ppg_pulses_per_sample ppg_pulses;
+    ppg_pulse_width       ppg_width;
+    ppg_smp_ave           ppg_smp_avg;
+};
 
 #endif /* __MAX86150_defs__ */

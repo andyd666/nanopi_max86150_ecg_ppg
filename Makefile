@@ -1,13 +1,14 @@
 CC=gcc
 BIN=start_max86150
-CFLAGS=-I include -g3 -O2 -Wall -Wextra -lwiringPi -lpthread
+CFLAGS=-I include -g3 -O2 -Wall -Wextra -lwiringPi -lpthread -lrt
 CFILES=./src/main.c \
        ./src/filework.c \
-       ./src/peripheral.c
+       ./src/peripheral.c \
+       ./src/timerwork.c
 
 build_all:
 	mkdir -p build
-	$(CC) -o ./build/$(BIN) $(CFILES) $(CFLAGS)
+	time $(CC) -o ./build/$(BIN) $(CFILES) $(CFLAGS)
 
 clean:
 	rm -rf ./build/

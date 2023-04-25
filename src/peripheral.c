@@ -18,10 +18,15 @@
 
 #include <stdint.h>
 #include <peripheral.h>
+#include <sys/ioctl.h>
+#include <linux/i2c-dev.h>
+#include <linux/i2c.h>
 #include <filework.h>
+#include <timerwork.h>
 #include <max86150_defs.h>
 #include <wiringPi.h>
 #include <wiringPiI2C.h>
+
 
 
 #define I2C0_WPI_SDA_PIN (8)
@@ -31,32 +36,39 @@
 static int max86150_fd;
 
 static dcr_slot set_dcr_slot(uint16_t sig);
+static int init_i2c0_for_max86150();
 static int write_max86150_register(int reg, int data);
-static int check_sampling_frequency(uint16_t freq, uint16_t sig);
+static int read_max86150_register(int reg, uint8_t *data);
+static int check_sampling_frequency(struct max86150_configuration *max86150);
+static int ppg_check_pulses_per_sample(struct max86150_configuration *max86150);
+static int ppg_convert_freq_to_register_value(struct max86150_configuration *max86150);
+static int ppg_set_range(struct max86150_configuration *max86150);
+static int ppg_set_led_pw(struct max86150_configuration *max86150);
+static int ppg_set_smp_ave(struct max86150_configuration *max86150);
 
 
 int init_gpio() {
-    int ret;
+    uint8_t reg_rd_buf[1] = {0};
 
-    ret = wiringPiSetup();
-    if (ret != 0) {
+    if (wiringPiSetup()) {
         d_print("%s: wiringPiSetup() failed\n", __func__);
-        return ret;
+        return -1;
     }
-    max86150_fd = wiringPiI2CSetup(MAX86150_DEV_ID);
 
-    if (!max86150_fd) {
-        d_print("%s: wiringPiI2CSetup(0) failed\n", __func__);
+    if (init_i2c0_for_max86150()) {
+        d_print("%s: init_i2c0_for_max86150() failed\n", __func__);
         return -1;
     }
 
     d_print("%s: max86150_fd = %d\n", __func__, max86150_fd);
 
     piLock(0);
-    ret = wiringPiI2CReadReg8(max86150_fd, MAX86150_REG_PART_ID);
-    if (MAX86150_PART_ID != ret) {
-        d_print("%s: MAX86150 Part ID is %d. Must be 0x%02x. Device may be broken\n",
-                __func__, ret, MAX86150_PART_ID);
+    if (read_max86150_register(MAX86150_REG_PART_ID, reg_rd_buf)) {
+        d_print("%s: read unsuccessful\n", __func__);
+    }
+    if (MAX86150_PART_ID != reg_rd_buf[0]) {
+        d_print("%s: MAX86150 Part ID is 0x%02x. Must be 0x%02x\n",
+                __func__, reg_rd_buf[0], MAX86150_PART_ID);
         piUnlock(0);
         return -1;
     }
@@ -65,24 +77,36 @@ int init_gpio() {
     return 0;
 }
 
-int init_max86150(uint16_t freq, uint16_t sig) {
+void deinit_gpio() {
+    if (max86150_fd) close(max86150_fd);
+}
+
+int init_max86150(struct max86150_configuration *max86150) {
     int i;
     int enabled_signals = 0;
     uint8_t reg_write_data;
 
-    d_print("%s: freq = %u, sig = 0x%02x\n", __func__, freq, sig);
+    d_print("%s: freq = %u, sig = 0x%02x - ppg1(%c) ppg2(%c) pilot1(%c) pilot2(%c) ecg(%c)\n",
+            __func__,
+            max86150->sampling_frequency,
+            max86150->allowed_signals,
+            (max86150->allowed_signals & ppg1) ? 'T': 'F',
+            (max86150->allowed_signals & ppg2) ? 'T': 'F',
+            (max86150->allowed_signals & pilot1) ? 'T': 'F',
+            (max86150->allowed_signals & pilot2) ? 'T': 'F',
+            (max86150->allowed_signals & ecg) ? 'T': 'F');
 
-    if (!sig) {
+    if (!max86150->allowed_signals) {
         d_print("%s: no signal enabled\n", __func__);
         return -1;
     }
 
-    if (sig == 0x1F) {
+    if (max86150->allowed_signals == PPG_SIGNALS_ALLOW_EVERY_SIGNAL) {
         d_print("%s: cannot allow every signal\n", __func__);
         return -1;
     }
 
-    if (check_sampling_frequency(freq, sig)) {
+    if (check_sampling_frequency(max86150)) {
         d_print("%s: wrong baudrate\n", __func__);
         return -1;
     }
@@ -108,13 +132,13 @@ int init_max86150(uint16_t freq, uint16_t sig) {
     reg_write_data = 0;
     enabled_signals = 0;
     for (i = 0; i < TOTAL_SIGNALS; i++) {
-        if ((1 << i) & sig) {
+        if ((1 << i) & max86150->allowed_signals) {
             enabled_signals++;
         }
         if (enabled_signals == 1) {
-            reg_write_data |= set_dcr_slot((1 << i) & sig);
+            reg_write_data |= set_dcr_slot((1 << i) & max86150->allowed_signals);
         } else if (enabled_signals == 2) {
-            reg_write_data |= (set_dcr_slot((1 << i) & sig) << 4);
+            reg_write_data |= (set_dcr_slot((1 << i) & max86150->allowed_signals) << 4);
             break;
         }
     }
@@ -129,13 +153,13 @@ int init_max86150(uint16_t freq, uint16_t sig) {
     /* Form data for MAX86150_REG_FIFO_DCR2 */
     reg_write_data = 0;
     for (++i; i < TOTAL_SIGNALS; i++) {
-        if ((1 << i) & sig) {
+        if ((1 << i) & max86150->allowed_signals) {
             enabled_signals++;
         }
         if (enabled_signals == 3) {
-            reg_write_data |= set_dcr_slot((1 << i) & sig);
+            reg_write_data |= set_dcr_slot((1 << i) & max86150->allowed_signals);
         } else if (enabled_signals == 4) {
-            reg_write_data |= (set_dcr_slot((1 << i) & sig) << 4);
+            reg_write_data |= (set_dcr_slot((1 << i) & max86150->allowed_signals) << 4);
             break;
         }
     }
@@ -147,8 +171,58 @@ int init_max86150(uint16_t freq, uint16_t sig) {
     }
     piUnlock(0);
 
+    /* Form data for MAX86150_REG_PPG_CFG1 */
+    reg_write_data = 0;
+    if (max86150->allowed_signals & (ppg1 | ppg2)) {
+        int tempret = 0;
+        tempret += ppg_set_range(max86150);
+        tempret += ppg_convert_freq_to_register_value(max86150);
+        tempret += ppg_check_pulses_per_sample(max86150);
+        tempret += ppg_set_led_pw(max86150);
+        if (tempret) {
+            d_print("%s: wrong data for MAX86150_REG_PPG_CFG1 register\n", __func__);
+            return -1;
+        }
+        reg_write_data |= ((max86150->ppg_range << MAX86150_SHIFT_PPG_ADC_RGE) & MAX86150_BIT_PPG_ADC_RGE);
+        reg_write_data |= ((max86150->ppg_sampling << MAX86150_SHIFT_PPG_SR) & MAX86150_BIT_PPG_SR);
+        reg_write_data |= ((max86150->ppg_width << MAX86150_SHIFT_PPG_LED_PW) & MAX86150_BIT_PPG_LED_PW);
+    }
+    piLock(0);
+    if (write_max86150_register(MAX86150_REG_PPG_CFG1, reg_write_data)) {
+        piUnlock(0);
+        d_print("%s: write unsuccessful\n", __func__);
+        return -1;
+    }
+    piUnlock(0);
+
+    /* Form data for MAX86150_REG_PPG_CFG2 */
+    reg_write_data = 0;
+    if (max86150->allowed_signals & (ppg1 | ppg2)) {
+        if (ppg_set_smp_ave(max86150)) {
+            d_print("%s: wrong data for MAX86150_REG_PPG_CFG2 register\n", __func__);
+            return -1;
+        }
+        reg_write_data = max86150->ppg_smp_avg & MAX86150_BIT_SMP_AVE;
+    }
+    if (write_max86150_register(MAX86150_REG_PPG_CFG2, reg_write_data)) {
+        piUnlock(0);
+        d_print("%s: write unsuccessful\n", __func__);
+        return -1;
+    }
+    piUnlock(0);
+
     return 0;
 }
+
+
+int start_recording(uint32_t samp_freq) {
+    piLock(0);
+
+    piUnlock(0);
+    start_max86150_timer(samp_freq);
+    return 0;
+}
+
 
 static dcr_slot set_dcr_slot(uint16_t sig) {
     switch (sig) {
@@ -169,17 +243,31 @@ static dcr_slot set_dcr_slot(uint16_t sig) {
     }
 }
 
-static int check_sampling_frequency(uint16_t freq, uint16_t sig) {
+static int init_i2c0_for_max86150() {
+    if ((max86150_fd = open("/dev/i2c-0", O_RDWR)) < 0) {
+        d_print("%s: Failed to open i2c bus /dev/i2c-0\n", __func__);
+        return -1;
+    }
+
+    if (ioctl(max86150_fd, I2C_SLAVE, MAX86150_DEV_ID)) {
+        d_print("%s: ioctl(%d, 0x%02x, 0x%02x) failed\n",
+                __func__, max86150_fd, I2C_SLAVE, MAX86150_DEV_ID);
+        return -1;
+    }
+    return 0;
+}
+
+static int check_sampling_frequency(struct max86150_configuration *max86150) {
     int i;
     int enabled_signals = 0;
     int max_bits_per_sec;
 
-    if (!freq) {
+    if (!max86150->sampling_frequency) {
         d_print("%s: sampling frequency not set\n", __func__);
     }
 
     for (i = 0; i < TOTAL_SIGNALS; i++) {
-        if ((1 << i) & sig) {
+        if ((1 << i) & max86150->allowed_signals) {
             enabled_signals++;
         }
     }
@@ -190,7 +278,7 @@ static int check_sampling_frequency(uint16_t freq, uint16_t sig) {
      * speed than 250000 B/s. But even on that speed MAX86150 become
      * unresponsive, so 210000 B/s is our practical limit. */
 
-    max_bits_per_sec = enabled_signals * BITS_PER_FIFO_READ * freq;
+    max_bits_per_sec = enabled_signals * BITS_PER_FIFO_READ * max86150->sampling_frequency;
 
     if (max_bits_per_sec > (I2C0_BAUD_RATE >> 1)) {
         d_print("%s: max Baudrate %d; asked for %d\n",
@@ -198,16 +286,233 @@ static int check_sampling_frequency(uint16_t freq, uint16_t sig) {
         return -1;
     }
 
+    /* Setting PPG sampling frequency */
+    if (max86150->allowed_signals & (ppg1 | ppg2)) {
+        switch (max86150->sampling_frequency) {
+            case PPG_FREQ_1_10:
+            case PPG_FREQ_1_20:
+            case PPG_FREQ_1_50:
+            case PPG_FREQ_1_84:
+            case PPG_FREQ_1_100:
+            case PPG_FREQ_1_200:
+            case PPG_FREQ_1_400:
+            case PPG_FREQ_1_800:
+            case PPG_FREQ_1_1000:
+            case PPG_FREQ_1_1600:
+            case PPG_FREQ_1_3200:
+           /* case PPG_FREQ_2_10:  */
+           /* case PPG_FREQ_2_20:  */
+           /* case PPG_FREQ_2_50:  */
+           /* case PPG_FREQ_2_84:  */
+           /* case PPG_FREQ_2_100: */
+                max86150->ppg_sampling_freq = max86150->sampling_frequency;
+                break;
+            default:
+                d_print("%s: incorrect PPG sampling frequency - %d\n",
+                        __func__, max86150->sampling_frequency);
+                return -1;
+        }
+    }
+
     return 0;
 }
 
+static int ppg_check_pulses_per_sample(struct max86150_configuration *max86150) {
+
+    if (max86150->ppg_pulses == 1) return 0;
+    if (max86150->ppg_pulses == 2) {
+        switch (max86150->ppg_sampling) {
+            case PPG_SR_0000:
+                max86150->ppg_sampling = PPG_SR_1011;
+                return 0;
+            case PPG_SR_0001:
+                max86150->ppg_sampling = PPG_SR_1100;
+                return 0;
+            case PPG_SR_0010:
+                max86150->ppg_sampling = PPG_SR_1101;
+                return 0;
+            case PPG_SR_0011:
+                max86150->ppg_sampling = PPG_SR_1110;
+                return 0;
+            case PPG_SR_0100:
+                max86150->ppg_sampling = PPG_SR_1111;
+                return 0;
+            default:
+                d_print("%s: pulse width check failed - ppg_pulses = %d, ppg_sampling = 0x%02x\n",
+                        __func__, max86150->ppg_pulses, max86150->ppg_sampling);
+                return -1;
+        }
+    }
+    d_print("%s: pulse width check failed - ppg_pulses = %d, ppg_sampling = 0x%02x\n",
+            __func__, max86150->ppg_pulses, max86150->ppg_sampling);
+    return -1;
+}
+
+static int ppg_convert_freq_to_register_value(struct max86150_configuration *max86150) {
+
+    switch(max86150->ppg_sampling_freq) {
+    case PPG_FREQ_1_10:
+   /* case PPG_FREQ_2_10:  */
+        max86150->ppg_sampling = PPG_SR_0000;
+        return 0;
+    case PPG_FREQ_1_20:
+   /* case PPG_FREQ_2_20:  */
+        max86150->ppg_sampling = PPG_SR_0001;
+        return 0;
+    case PPG_FREQ_1_50:
+   /* case PPG_FREQ_2_50:  */
+        max86150->ppg_sampling = PPG_SR_0010;
+        return 0;
+    case PPG_FREQ_1_84:
+   /* case PPG_FREQ_2_84:  */
+        max86150->ppg_sampling = PPG_SR_0011;
+        return 0;
+    case PPG_FREQ_1_100:
+   /* case PPG_FREQ_2_100: */
+        max86150->ppg_sampling = PPG_SR_0100;
+        return 0;
+    case PPG_FREQ_1_200:
+        max86150->ppg_sampling = PPG_SR_0101;
+        return 0;
+    case PPG_FREQ_1_400:
+        max86150->ppg_sampling = PPG_SR_0110;
+        return 0;
+    case PPG_FREQ_1_800:
+        max86150->ppg_sampling = PPG_SR_0111;
+        return 0;
+    case PPG_FREQ_1_1000:
+        max86150->ppg_sampling = PPG_SR_1000;
+        return 0;
+    case PPG_FREQ_1_1600:
+        max86150->ppg_sampling = PPG_SR_1001;
+        return 0;
+    case PPG_FREQ_1_3200:
+        max86150->ppg_sampling = PPG_SR_1010;
+        return 0;
+    default:
+        d_print("%s: PPG sampling conversion failed - ppg_sampling_freq = %d\n",
+                __func__, max86150->ppg_sampling_freq);
+        return -1;
+    }
+}
+
+static int ppg_set_range(struct max86150_configuration *max86150) {
+    switch (max86150->ppg_adc_scale) {
+        case 4:
+            max86150->ppg_range = PPG_RGE_UA4;
+            return 0;
+        case 8:
+            max86150->ppg_range = PPG_RGE_UA8;
+            return 0;
+        case 16:
+            max86150->ppg_range = PPG_RGE_UA16;
+            return 0;
+        case 32:
+            max86150->ppg_range = PPG_RGE_UA32;
+            return 0;
+        default:
+            d_print("%s: PPG range incorrect - ppg_adc_scale = %d\n",
+                    __func__, max86150->ppg_adc_scale);
+            return -1;
+    }
+}
+
+static int ppg_set_led_pw(struct max86150_configuration *max86150) {
+    switch (max86150->ppg_led_pw) {
+        case 50:
+            max86150->ppg_width = PPG_PULSE_WIDTH_50US;
+            return 0;
+        case 100:
+            max86150->ppg_width = PPG_PULSE_WIDTH_100US;
+            return 0;
+        case 200:
+            max86150->ppg_width = PPG_PULSE_WIDTH_200US;
+            return 0;
+        case 400:
+            max86150->ppg_width = PPG_PULSE_WIDTH_400US;
+            return 0;
+    }
+    d_print("%s: LED pulse width incorrect - ppg_led_pw = %d\n",
+            __func__, max86150->ppg_led_pw);
+    return -1;
+}
+
+static int ppg_set_smp_ave(struct max86150_configuration *max86150) {
+    switch (max86150->ppg_sample_average) {
+        case 1:
+            max86150->ppg_smp_avg = PPG_SMP_AVE_1;
+            return 0;
+        case 2:
+            max86150->ppg_smp_avg = PPG_SMP_AVE_2;
+            return 0;
+        case 4:
+            max86150->ppg_smp_avg = PPG_SMP_AVE_4;
+            return 0;
+        case 8:
+            max86150->ppg_smp_avg = PPG_SMP_AVE_8;
+            return 0;
+        case 16:
+            max86150->ppg_smp_avg = PPG_SMP_AVE_16;
+            return 0;
+        case 32:
+            max86150->ppg_smp_avg = PPG_SMP_AVE_32;
+            return 0;
+    }
+    d_print("%s: PPG sample average incorrect - %d\n",
+            __func__, max86150->ppg_sample_average);
+    return -1;
+}
+
 static int write_max86150_register(int reg, int data) {
-    d_print("%s: setting for fd=%d \treg 0x%02x \tdata 0x%02x\n", __func__, max86150_fd, reg, data);
-    return wiringPiI2CWriteReg8(max86150_fd, reg, data);
+    int wr_bytes = 0;
+    char buf[2];
+
+    /* WRITE can work like this, while READ cannot for some reason */
+    buf[0] = reg;
+    buf[1] = data;
+    d_print("%s: setting for fd=%d \treg 0x%02x \tdata 0x%02x - ", __func__, max86150_fd, reg, data);
+    wr_bytes = write(max86150_fd, buf, 2);
+    d_print("wr_bytes = %d\n", wr_bytes);
+    return (wr_bytes == 2) ? 0 : wr_bytes;
+}
+
+static int read_max86150_register(int reg, uint8_t *data) {
+    uint8_t outbuf[1];
+    struct i2c_msg msgs[2];
+    struct i2c_rdwr_ioctl_data msgset[1];
+
+    msgs[0].addr = MAX86150_DEV_ID;
+    msgs[0].flags = 0;
+    msgs[0].len = 1;
+    msgs[0].buf = outbuf;
+
+    msgs[1].addr = MAX86150_DEV_ID;
+    msgs[1].flags = I2C_M_RD;
+    msgs[1].len = 1;
+    msgs[1].buf = data;
+
+    msgset[0].msgs = msgs;
+    msgset[0].nmsgs = 2;
+
+    outbuf[0] = reg;
+
+    *(msgs[1].buf) = 0;
+    if (ioctl(max86150_fd, I2C_RDWR, &msgset) < 0) {
+        d_print("%s: ioctl(I2C_RDWR) in i2c_read\n", __func__);
+        return -1;
+    }
+
+    return 0;
 }
 
 int reset_device() {
-    d_print("%s: resetting MAX86150\n", __func__);
-    return wiringPiI2CWriteReg8(max86150_fd, MAX86150_REG_SYS_CTL, MAX86150_BIT_RESET);
+    int wr_bytes = 0;
+    char buf[2];
+    buf[0] = MAX86150_REG_SYS_CTL;
+    buf[1] = MAX86150_BIT_RESET;
+    d_print("%s: resetting MAX86150 - ", __func__);
+    wr_bytes = write(max86150_fd, buf, 2);
+    d_print("wr_bytes = %d\n", wr_bytes);
+    return (wr_bytes == 2) ? 0 : wr_bytes;
 }
 

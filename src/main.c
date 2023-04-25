@@ -11,17 +11,20 @@
 
 #define UNUSED(x) ((void)x)
 
-static int validate_input(int argc, char **argv, uint16_t *samp_freq, uint16_t *sig);
+static int validate_input(int argc, char **argv, struct max86150_configuration *max86150);
+static void set_default_max86150_values(struct max86150_configuration *max86150);
 static void print_usage(char **argv);
 
 
 int main(int argc, char **argv) {
-    uint16_t sig = 0, samp_freq = 0;
     int retval = 0;
+    struct max86150_configuration max86150 = {0};
 
     init_debug();
 
-    if (validate_input(argc, argv, &samp_freq, &sig)) {
+    set_default_max86150_values(&max86150);
+
+    if (validate_input(argc, argv, &max86150)) {
         /* d_print("%s: cannot validate input\n", __func__); */ /* May be silently closed */
         retval = -1;
         goto cant_start;
@@ -35,19 +38,29 @@ int main(int argc, char **argv) {
         goto cant_start;
     }
 
-    if (init_max86150(samp_freq, sig)) {
+    if (init_max86150(&max86150)) {
         retval = -1;
         goto cant_start;
     }
 
+    if (start_recording(max86150.sampling_frequency)) {
+        retval = 1;
+        goto cant_start;
+    }
+
+    while (1) {
+
+    }
+
 cant_start:
 
+    deinit_gpio();
     close_debug();
     return retval;
 }
 
 
-static int validate_input(int argc, char **argv, uint16_t *samp_freq, uint16_t *sig) {
+static int validate_input(int argc, char **argv, struct max86150_configuration *max86150) {
     int i;
     if (argc == 1) {
         print_usage(argv);
@@ -62,39 +75,55 @@ static int validate_input(int argc, char **argv, uint16_t *samp_freq, uint16_t *
             }
             if (argv[i][1] == 'f') {
                 i++;
-                *samp_freq = atoi(argv[i]);
-                if (!(*samp_freq)) {
+                max86150->sampling_frequency = atoi(argv[i]);
+                if (!max86150->sampling_frequency) {
                     printf("%s: sample frequency is invalid - %s\n", __func__, argv[i]);
                     return -1;
                 }
                 continue;
             }
             if (0 == strcmp(argv[i], "--ppg1")) {
-                *sig |= ppg1;
+                max86150->allowed_signals |= ppg1;
                 continue;
             }
             if (0 == strcmp(argv[i], "--ppg2")) {
-                *sig |= ppg2;
+                max86150->allowed_signals |= ppg2;
                 continue;
             }
             if (0 == strcmp(argv[i], "--ppg")) {
-                *sig |= ppg1 | ppg2;
+                max86150->allowed_signals |= ppg1 | ppg2;
                 continue;
             }
             if (0 == strcmp(argv[i], "--pilot1")) {
-                *sig |= pilot1;
+                max86150->allowed_signals |= pilot1;
                 continue;
             }
             if (0 == strcmp(argv[i], "--pilot2")) {
-                *sig |= pilot2;
+                max86150->allowed_signals |= pilot2;
                 continue;
             }
             if (0 == strcmp(argv[i], "--pilot")) {
-                *sig |= pilot1 | pilot2;
+                max86150->allowed_signals |= pilot1 | pilot2;
                 continue;
             }
             if (0 == strcmp(argv[i], "--ecg")) {
-                *sig |= ecg;
+                max86150->allowed_signals |= ecg;
+                continue;
+            }
+            if (0 == strcmp(argv[i], "--set-ppg-range")) {
+                max86150->ppg_adc_scale = atoi(argv[++i]);
+                continue;
+            }
+            if (0 == strcmp(argv[i], "--set-led-pw")) {
+                max86150->ppg_led_pw = atoi(argv[++i]);
+                continue;
+            }
+            if (0 == strcmp(argv[i], "--set-ppg-pulses")) {
+                max86150->ppg_pulses = atoi(argv[++i]);
+                continue;
+            }
+            if (0 == strcmp(argv[i], "--set-ppg-smp-ave")) {
+                max86150->ppg_sample_average = atoi(argv[++i]);
                 continue;
             }
             printf("%s, %d: unknown parameter - \"%s\"\n", __func__, __LINE__, argv[i]);
@@ -106,19 +135,33 @@ static int validate_input(int argc, char **argv, uint16_t *samp_freq, uint16_t *
             return -1;
         }
     }
+
     return 0;
+}
+
+static void set_default_max86150_values(struct max86150_configuration *max86150) {
+    max86150->sampling_frequency = 200;
+    max86150->ppg_pulses         = 1;
+    max86150->ppg_adc_scale      = 4;
+    max86150->ppg_led_pw         = 50;
+    max86150->ppg_sample_average = 1;
 }
 
 static void print_usage(char **argv) {
     printf("%s usage:\n", argv[0]);
-    printf("\t-h\t\t-\tshow usage\n");
-    printf("\t-f\t\t-\tset sampling frequency\n");
-    printf("\t--ppg1\t\t-\ttoggle on PPG1\n");
-    printf("\t--ppg2\t\t-\ttoggle on PPG2\n");
-    printf("\t--ppg\t\t-\ttoggle on both PPG signals\n");
-    printf("\t--pilot1\t-\ttoggle on PILOT1\n");
-    printf("\t--pilot2\t-\ttoggle on PILOT2\n");
-    printf("\t--pilot\t\t-\ttoggle on both PILOT signals\n");
-    printf("\t--ecg\t\t-\ttoggle on ECG signal\n");
+    printf("\t-h\t\t\t-\tshow usage\n\n");
+    printf("\t--ppg1\t\t\t-\ttoggle on PPG1\n");
+    printf("\t--ppg2\t\t\t-\ttoggle on PPG2\n");
+    printf("\t--ppg\t\t\t-\ttoggle on both PPG signals\n");
+    printf("\t--pilot1\t\t-\ttoggle on PILOT1\n");
+    printf("\t--pilot2\t\t-\ttoggle on PILOT2\n");
+    printf("\t--pilot\t\t\t-\ttoggle on both PILOT signals\n");
+    printf("\tNote: at least one of the flags above must be enabled\n\n");
+    printf("\t-f\t\t\t-\tset sampling frequency\n");
+    printf("\t--ecg\t\t\t-\ttoggle on ECG signal\n");
+    printf("\t--set-ppg-range\t\t-\tPPG ADC range control [4ua, 8ua, 16ua, 32ua]\n");
+    printf("\t--set-ppg-pulses\t-\tPPG pulses per sample [1, 2]\n");
+    printf("\t--set-led-pw\t\t-\tset LED pulse width [50us, 100us, 200us, 400us]\n");
+    printf("\t--set-ppg-smp-ave\t-\tPPG Sampling Average [1, 2, 4, 8, 16, 32]\n");
     printf("\tNote: \"-f200\" is invalid value. Please, separate flags and values\n");
 }
