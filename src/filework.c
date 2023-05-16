@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <filework.h>
 
 
 static char *debug_fname = "/tmp/max86150_logs.txt";
@@ -20,6 +21,7 @@ void init_debug() {
 
 void close_debug() {
     if (debug_file) {
+        d_print("############################################\n");
         fclose(debug_file);
     }
 }
