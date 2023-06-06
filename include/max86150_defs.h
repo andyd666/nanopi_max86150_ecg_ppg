@@ -136,6 +136,7 @@
 /* ECG Configuration 1          */
 #define MAX86150_BIT_ECG_ADC_CLK        (1 << 2)
 #define MAX86150_BIT_ECG_ADC_OSR        (0x03 << 0)
+#define MAX86150_MASK_ECG_ADC_CLK       (0x7)
 
 /* ECG Configuration 3          */
 #define MAX86150_BIT_PGA_ECG_GAIN       (0x03 << 2)
@@ -244,6 +245,17 @@ typedef enum {
     PPG_LED_CURRENT100 = 0x1
 }ppg_led_current_range;
 
+typedef enum {
+    ECG_ADC_CLK_OSR_0_1600 = 0,
+    ECG_ADC_CLK_OSR_0_800  = 1,
+    ECG_ADC_CLK_OSR_0_400  = 2,
+    ECG_ADC_CLK_OSR_0_200  = 3,
+    ECG_ADC_CLK_OSR_1_3200 = 4,
+    ECG_ADC_CLK_OSR_1_1600 = 5,
+    ECG_ADC_CLK_OSR_1_800  = 6,
+    ECG_ADC_CLK_OSR_1_400  = 7
+}ecg_adc_clk_adc_osr;
+
 
 struct max86150_configuration {
     /* These parameters are entered by user */
@@ -257,6 +269,7 @@ struct max86150_configuration {
     int                       ppg_sample_average;
     int                       ppg_led1_amplitude;
     int                       ppg_led2_amplitude;
+    int                       ecg_adc_clk_osr;
 
     /* These values are writen into registers */
     ppg_adc_rge               ppg_range_reg;
@@ -268,6 +281,7 @@ struct max86150_configuration {
     ppg_led_current_amplitude ppg_led2_amplitude_reg;
     ppg_led_current_range     ppg_led1_amplitude_range;
     ppg_led_current_range     ppg_led2_amplitude_range;
+    ecg_adc_clk_adc_osr       ecg_adc_clk_osr_reg;
 };
 
 #endif /* __MAX86150_defs__ */
