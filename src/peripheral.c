@@ -45,6 +45,7 @@ static int ppg_convert_freq_to_register_value(struct max86150_configuration *max
 static int ppg_set_range(struct max86150_configuration *max86150);
 static int ppg_set_led_pw(struct max86150_configuration *max86150);
 static int ppg_set_smp_ave(struct max86150_configuration *max86150);
+static int ppg_set_leds_range(struct max86150_configuration *max86150);
 
 
 int init_gpio() {
@@ -183,9 +184,9 @@ int init_max86150(struct max86150_configuration *max86150) {
             d_print("%s: wrong data for MAX86150_REG_PPG_CFG1 register\n", __func__);
             return -1;
         }
-        reg_write_data |= ((max86150->ppg_range << MAX86150_SHIFT_PPG_ADC_RGE) & MAX86150_BIT_PPG_ADC_RGE);
-        reg_write_data |= ((max86150->ppg_sampling << MAX86150_SHIFT_PPG_SR) & MAX86150_BIT_PPG_SR);
-        reg_write_data |= ((max86150->ppg_width << MAX86150_SHIFT_PPG_LED_PW) & MAX86150_BIT_PPG_LED_PW);
+        reg_write_data |= ((max86150->ppg_range_reg << MAX86150_SHIFT_PPG_ADC_RGE) & MAX86150_BIT_PPG_ADC_RGE);
+        reg_write_data |= ((max86150->ppg_sampling_reg << MAX86150_SHIFT_PPG_SR) & MAX86150_BIT_PPG_SR);
+        reg_write_data |= ((max86150->ppg_width_reg << MAX86150_SHIFT_PPG_LED_PW) & MAX86150_BIT_PPG_LED_PW);
     }
     piLock(0);
     if (write_max86150_register(MAX86150_REG_PPG_CFG1, reg_write_data)) {
@@ -202,14 +203,53 @@ int init_max86150(struct max86150_configuration *max86150) {
             d_print("%s: wrong data for MAX86150_REG_PPG_CFG2 register\n", __func__);
             return -1;
         }
-        reg_write_data = max86150->ppg_smp_avg & MAX86150_BIT_SMP_AVE;
+        reg_write_data = max86150->ppg_smp_avg_reg & MAX86150_BIT_SMP_AVE;
     }
+    piLock(0);
     if (write_max86150_register(MAX86150_REG_PPG_CFG2, reg_write_data)) {
         piUnlock(0);
         d_print("%s: write unsuccessful\n", __func__);
         return -1;
     }
     piUnlock(0);
+
+    /* Form data for MAX86150_REG_LED1_PA */
+    /* Form data for MAX86150_REG_LED2_PA */
+    /* Form data for MAX86150_REG_LED_RANGE */
+    reg_write_data = 0;
+    if (max86150->allowed_signals & (ppg1 | ppg2)) {
+        if (ppg_set_leds_range(max86150)) {
+            d_print("%s: cannot set LED current range - %d\n", __func__, max86150);
+        }
+        if (max86150->allowed_signals & ppg1) {
+            reg_write_data |= ((max86150->ppg_led1_amplitude_range << MAX86150_SHIFT_LED1_RGE) & MAX86150_BIT_LED1_RGE);
+            piLock(0);
+            if (write_max86150_register(MAX86150_REG_LED1_PA, max86150->ppg_led1_amplitude_reg)) {
+                piUnlock(0);
+                d_print("%s: write unsuccessful\n", __func__);
+                return -1;
+            }
+            piUnlock(0);
+        }
+        if (max86150->allowed_signals & ppg2) {
+            reg_write_data |= ((max86150->ppg_led2_amplitude_range << MAX86150_SHIFT_LED2_RGE) & MAX86150_BIT_LED2_RGE);
+            piLock(0);
+            if (write_max86150_register(MAX86150_REG_LED2_PA, max86150->ppg_led2_amplitude_reg)) {
+                piUnlock(0);
+                d_print("%s: write unsuccessful\n", __func__);
+                return -1;
+            }
+            piUnlock(0);
+        }
+
+        piLock(0);
+        if (write_max86150_register(MAX86150_REG_LED_RANGE, reg_write_data)) {
+            piUnlock(0);
+            d_print("%s: write unsuccessful\n", __func__);
+            return -1;
+        }
+        piUnlock(0);
+    }
 
     return 0;
 }
@@ -319,32 +359,32 @@ static int check_sampling_frequency(struct max86150_configuration *max86150) {
 
 static int ppg_check_pulses_per_sample(struct max86150_configuration *max86150) {
 
-    if (max86150->ppg_pulses == 1) return 0;
-    if (max86150->ppg_pulses == 2) {
-        switch (max86150->ppg_sampling) {
+    if (max86150->ppg_pulses_reg == 1) return 0;
+    if (max86150->ppg_pulses_reg == 2) {
+        switch (max86150->ppg_sampling_reg) {
             case PPG_SR_0000:
-                max86150->ppg_sampling = PPG_SR_1011;
+                max86150->ppg_sampling_reg = PPG_SR_1011;
                 return 0;
             case PPG_SR_0001:
-                max86150->ppg_sampling = PPG_SR_1100;
+                max86150->ppg_sampling_reg = PPG_SR_1100;
                 return 0;
             case PPG_SR_0010:
-                max86150->ppg_sampling = PPG_SR_1101;
+                max86150->ppg_sampling_reg = PPG_SR_1101;
                 return 0;
             case PPG_SR_0011:
-                max86150->ppg_sampling = PPG_SR_1110;
+                max86150->ppg_sampling_reg = PPG_SR_1110;
                 return 0;
             case PPG_SR_0100:
-                max86150->ppg_sampling = PPG_SR_1111;
+                max86150->ppg_sampling_reg = PPG_SR_1111;
                 return 0;
             default:
-                d_print("%s: pulse width check failed - ppg_pulses = %d, ppg_sampling = 0x%02x\n",
-                        __func__, max86150->ppg_pulses, max86150->ppg_sampling);
+                d_print("%s: pulse width check failed - ppg_pulses = %d, ppg_sampling_reg = 0x%02x\n",
+                        __func__, max86150->ppg_pulses_reg, max86150->ppg_sampling_reg);
                 return -1;
         }
     }
     d_print("%s: pulse width check failed - ppg_pulses = %d, ppg_sampling = 0x%02x\n",
-            __func__, max86150->ppg_pulses, max86150->ppg_sampling);
+            __func__, max86150->ppg_pulses_reg, max86150->ppg_sampling_reg);
     return -1;
 }
 
@@ -353,41 +393,41 @@ static int ppg_convert_freq_to_register_value(struct max86150_configuration *max
     switch(max86150->ppg_sampling_freq) {
     case PPG_FREQ_1_10:
    /* case PPG_FREQ_2_10:  */
-        max86150->ppg_sampling = PPG_SR_0000;
+        max86150->ppg_sampling_reg = PPG_SR_0000;
         return 0;
     case PPG_FREQ_1_20:
    /* case PPG_FREQ_2_20:  */
-        max86150->ppg_sampling = PPG_SR_0001;
+        max86150->ppg_sampling_reg = PPG_SR_0001;
         return 0;
     case PPG_FREQ_1_50:
    /* case PPG_FREQ_2_50:  */
-        max86150->ppg_sampling = PPG_SR_0010;
+        max86150->ppg_sampling_reg = PPG_SR_0010;
         return 0;
     case PPG_FREQ_1_84:
    /* case PPG_FREQ_2_84:  */
-        max86150->ppg_sampling = PPG_SR_0011;
+        max86150->ppg_sampling_reg = PPG_SR_0011;
         return 0;
     case PPG_FREQ_1_100:
    /* case PPG_FREQ_2_100: */
-        max86150->ppg_sampling = PPG_SR_0100;
+        max86150->ppg_sampling_reg = PPG_SR_0100;
         return 0;
     case PPG_FREQ_1_200:
-        max86150->ppg_sampling = PPG_SR_0101;
+        max86150->ppg_sampling_reg = PPG_SR_0101;
         return 0;
     case PPG_FREQ_1_400:
-        max86150->ppg_sampling = PPG_SR_0110;
+        max86150->ppg_sampling_reg = PPG_SR_0110;
         return 0;
     case PPG_FREQ_1_800:
-        max86150->ppg_sampling = PPG_SR_0111;
+        max86150->ppg_sampling_reg = PPG_SR_0111;
         return 0;
     case PPG_FREQ_1_1000:
-        max86150->ppg_sampling = PPG_SR_1000;
+        max86150->ppg_sampling_reg = PPG_SR_1000;
         return 0;
     case PPG_FREQ_1_1600:
-        max86150->ppg_sampling = PPG_SR_1001;
+        max86150->ppg_sampling_reg = PPG_SR_1001;
         return 0;
     case PPG_FREQ_1_3200:
-        max86150->ppg_sampling = PPG_SR_1010;
+        max86150->ppg_sampling_reg = PPG_SR_1010;
         return 0;
     default:
         d_print("%s: PPG sampling conversion failed - ppg_sampling_freq = %d\n",
@@ -399,16 +439,16 @@ static int ppg_convert_freq_to_register_value(struct max86150_configuration *max
 static int ppg_set_range(struct max86150_configuration *max86150) {
     switch (max86150->ppg_adc_scale) {
         case 4:
-            max86150->ppg_range = PPG_RGE_UA4;
+            max86150->ppg_range_reg = PPG_RGE_UA4;
             return 0;
         case 8:
-            max86150->ppg_range = PPG_RGE_UA8;
+            max86150->ppg_range_reg = PPG_RGE_UA8;
             return 0;
         case 16:
-            max86150->ppg_range = PPG_RGE_UA16;
+            max86150->ppg_range_reg = PPG_RGE_UA16;
             return 0;
         case 32:
-            max86150->ppg_range = PPG_RGE_UA32;
+            max86150->ppg_range_reg = PPG_RGE_UA32;
             return 0;
         default:
             d_print("%s: PPG range incorrect - ppg_adc_scale = %d\n",
@@ -420,16 +460,16 @@ static int ppg_set_range(struct max86150_configuration *max86150) {
 static int ppg_set_led_pw(struct max86150_configuration *max86150) {
     switch (max86150->ppg_led_pw) {
         case 50:
-            max86150->ppg_width = PPG_PULSE_WIDTH_50US;
+            max86150->ppg_width_reg = PPG_PULSE_WIDTH_50US;
             return 0;
         case 100:
-            max86150->ppg_width = PPG_PULSE_WIDTH_100US;
+            max86150->ppg_width_reg = PPG_PULSE_WIDTH_100US;
             return 0;
         case 200:
-            max86150->ppg_width = PPG_PULSE_WIDTH_200US;
+            max86150->ppg_width_reg = PPG_PULSE_WIDTH_200US;
             return 0;
         case 400:
-            max86150->ppg_width = PPG_PULSE_WIDTH_400US;
+            max86150->ppg_width_reg = PPG_PULSE_WIDTH_400US;
             return 0;
     }
     d_print("%s: LED pulse width incorrect - ppg_led_pw = %d\n",
@@ -440,27 +480,54 @@ static int ppg_set_led_pw(struct max86150_configuration *max86150) {
 static int ppg_set_smp_ave(struct max86150_configuration *max86150) {
     switch (max86150->ppg_sample_average) {
         case 1:
-            max86150->ppg_smp_avg = PPG_SMP_AVE_1;
+            max86150->ppg_smp_avg_reg = PPG_SMP_AVE_1;
             return 0;
         case 2:
-            max86150->ppg_smp_avg = PPG_SMP_AVE_2;
+            max86150->ppg_smp_avg_reg = PPG_SMP_AVE_2;
             return 0;
         case 4:
-            max86150->ppg_smp_avg = PPG_SMP_AVE_4;
+            max86150->ppg_smp_avg_reg = PPG_SMP_AVE_4;
             return 0;
         case 8:
-            max86150->ppg_smp_avg = PPG_SMP_AVE_8;
+            max86150->ppg_smp_avg_reg = PPG_SMP_AVE_8;
             return 0;
         case 16:
-            max86150->ppg_smp_avg = PPG_SMP_AVE_16;
+            max86150->ppg_smp_avg_reg = PPG_SMP_AVE_16;
             return 0;
         case 32:
-            max86150->ppg_smp_avg = PPG_SMP_AVE_32;
+            max86150->ppg_smp_avg_reg = PPG_SMP_AVE_32;
             return 0;
     }
     d_print("%s: PPG sample average incorrect - %d\n",
             __func__, max86150->ppg_sample_average);
     return -1;
+}
+
+#define LED_AMPLITUDE_MULTIPLIER 5
+static int ppg_set_leds_range(struct max86150_configuration *max86150) {
+    if ((max86150->ppg_led1_amplitude > 0) && (max86150->ppg_led1_amplitude <=51)) {
+        max86150->ppg_led1_amplitude_reg = max86150->ppg_led1_amplitude * LED_AMPLITUDE_MULTIPLIER;
+        max86150->ppg_led1_amplitude_range = PPG_LED_CURRENT50;
+    } else if ((max86150->ppg_led1_amplitude <= 102) && (max86150->ppg_led1_amplitude > 51)) {
+        max86150->ppg_led1_amplitude_reg = (max86150->ppg_led1_amplitude >> 1) * LED_AMPLITUDE_MULTIPLIER;
+        max86150->ppg_led1_amplitude_range = PPG_LED_CURRENT100;
+    } else {
+        d_print("%s: cannot set LED1 current amplitude - %d\n", __func__, max86150->ppg_led1_amplitude);
+        return -1;
+    }
+
+    if ((max86150->ppg_led2_amplitude > 0) && (max86150->ppg_led2_amplitude <=51)) {
+        max86150->ppg_led2_amplitude_reg = max86150->ppg_led2_amplitude * LED_AMPLITUDE_MULTIPLIER;
+        max86150->ppg_led2_amplitude_range = PPG_LED_CURRENT50;
+    } else if ((max86150->ppg_led2_amplitude <= 102) && (max86150->ppg_led2_amplitude > 51)) {
+        max86150->ppg_led2_amplitude_reg = (max86150->ppg_led2_amplitude >> 1) * LED_AMPLITUDE_MULTIPLIER;
+        max86150->ppg_led2_amplitude_range = PPG_LED_CURRENT100;
+    } else {
+        d_print("%s: cannot set LED2 current amplitude - %d\n", __func__, max86150->ppg_led2_amplitude);
+        return -1;
+    }
+
+    return 0;
 }
 
 static int write_max86150_register(int reg, int data) {
