@@ -1,6 +1,6 @@
 # nanopi_max86150_ecg_ppg
 
-Before starting building code wiringPi must be downloaded.
+Before starting building code, wiringPi must be downloaded.
 
 > apt-get install wiringpi
 
