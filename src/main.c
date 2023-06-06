@@ -119,13 +119,27 @@ static int validate_input(int argc, char **argv, struct max86150_configuration *
                 continue;
             }
             if (0 == strcmp(argv[i], "--set-ppg-pulses")) {
-                max86150->ppg_pulses = atoi(argv[++i]);
+                max86150->ppg_pulses_reg = atoi(argv[++i]);
                 continue;
             }
             if (0 == strcmp(argv[i], "--set-ppg-smp-ave")) {
                 max86150->ppg_sample_average = atoi(argv[++i]);
                 continue;
             }
+            if (0 == strcmp(argv[i], "--set-led1-pulse-amplitude")) {
+                max86150->ppg_led1_amplitude = atoi(argv[++i]);
+                continue;
+            }
+            if (0 == strcmp(argv[i], "--set-led2-pulse-amplitude")) {
+                max86150->ppg_led2_amplitude = atoi(argv[++i]);
+                continue;
+            }
+            if (0 == strcmp(argv[i], "--set-led-pulse-amplitude")) {
+                max86150->ppg_led1_amplitude = atoi(argv[++i]);
+                max86150->ppg_led2_amplitude = max86150->ppg_led1_amplitude;
+                continue;
+            }
+
             printf("%s, %d: unknown parameter - \"%s\"\n", __func__, __LINE__, argv[i]);
             print_usage(argv);
             return -1;
@@ -141,27 +155,34 @@ static int validate_input(int argc, char **argv, struct max86150_configuration *
 
 static void set_default_max86150_values(struct max86150_configuration *max86150) {
     max86150->sampling_frequency = 200;
-    max86150->ppg_pulses         = 1;
+    max86150->ppg_pulses_reg     = 1;
     max86150->ppg_adc_scale      = 4;
     max86150->ppg_led_pw         = 50;
     max86150->ppg_sample_average = 1;
+    max86150->ppg_led1_amplitude = 25;
+    max86150->ppg_led2_amplitude = 25;
 }
 
 static void print_usage(char **argv) {
     printf("%s usage:\n", argv[0]);
-    printf("\t-h\t\t\t-\tshow usage\n\n");
-    printf("\t--ppg1\t\t\t-\ttoggle on PPG1\n");
-    printf("\t--ppg2\t\t\t-\ttoggle on PPG2\n");
-    printf("\t--ppg\t\t\t-\ttoggle on both PPG signals\n");
-    printf("\t--pilot1\t\t-\ttoggle on PILOT1\n");
-    printf("\t--pilot2\t\t-\ttoggle on PILOT2\n");
-    printf("\t--pilot\t\t\t-\ttoggle on both PILOT signals\n");
+    printf("\t-h\t\t\t\t-\tshow usage\n\n");
+    printf("\t--ppg1\t\t\t\t-\ttoggle on PPG1\n");
+    printf("\t--ppg2\t\t\t\t-\ttoggle on PPG2\n");
+    printf("\t--ppg\t\t\t\t-\ttoggle on both PPG signals\n");
+    printf("\t--pilot1\t\t\t-\ttoggle on PILOT1\n");
+    printf("\t--pilot2\t\t\t-\ttoggle on PILOT2\n");
+    printf("\t--pilot\t\t\t\t-\ttoggle on both PILOT signals\n");
     printf("\tNote: at least one of the flags above must be enabled\n\n");
-    printf("\t-f\t\t\t-\tset sampling frequency\n");
-    printf("\t--ecg\t\t\t-\ttoggle on ECG signal\n");
-    printf("\t--set-ppg-range\t\t-\tPPG ADC range control [4ua, 8ua, 16ua, 32ua]\n");
-    printf("\t--set-ppg-pulses\t-\tPPG pulses per sample [1, 2]\n");
-    printf("\t--set-led-pw\t\t-\tset LED pulse width [50us, 100us, 200us, 400us]\n");
-    printf("\t--set-ppg-smp-ave\t-\tPPG Sampling Average [1, 2, 4, 8, 16, 32]\n");
+    printf("\t-f\t\t\t\t-\tset sampling frequency\n");
+    printf("\t--ecg\t\t\t\t-\ttoggle on ECG signal\n");
+    printf("\t--set-ppg-range\t\t\t-\tPPG ADC range control [4ua, 8ua, 16ua, 32ua]\n");
+    printf("\t--set-ppg-pulses\t\t-\tPPG pulses per sample [1, 2]\n");
+    printf("\t--set-led-pw\t\t\t-\tset LED pulse width [50us, 100us, 200us, 400us]\n");
+    printf("\t--set-led1-pulse-amplitude\t-\tset LED1 pulse amplitude current.\n");
+    printf("\t--set-led2-pulse-amplitude\t-\tset LED2 pulse amplitude current.\n");
+    printf("\t--set-led-pulse-amplitude\t-\tset both LEDs pulse amplitude current.\n");
+    printf("\t\t\t\t\t\tIf range is  0 -  52 mA, then step is 1 mA\n");
+    printf("\t\t\t\t\t\tIf range is 52 - 102 mA, then step is 2 mA\n");
+    printf("\t--set-ppg-smp-ave\t\t-\tPPG Sampling Average [1, 2, 4, 8, 16, 32]\n");
     printf("\tNote: \"-f200\" is invalid value. Please, separate flags and values\n");
 }

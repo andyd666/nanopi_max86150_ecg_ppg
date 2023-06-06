@@ -125,8 +125,10 @@
 /* Full Register                */
 
 /* LED Range                    */
-#define MAX86150_BIT_LED2_RGE           (0x03 << 2)
-#define MAX86150_BIT_LED1_RGE           (0x03 << 0)
+#define MAX86150_SHIFT_LED2_RGE         (2)
+#define MAX86150_SHIFT_LED1_RGE         (0)
+#define MAX86150_BIT_LED2_RGE           (0x03 << MAX86150_SHIFT_LED2_RGE)
+#define MAX86150_BIT_LED1_RGE           (0x03 << MAX86150_SHIFT_LED1_RGE)
 
 /* LED1 PILOT PA                */
 /* Full Register                */
@@ -235,24 +237,37 @@ typedef enum {
     PPG_SMP_AVE_32 = 5
 }ppg_smp_ave;
 
+typedef uint8_t ppg_led_current_amplitude;
+
+typedef enum {
+    PPG_LED_CURRENT50  = 0x0,
+    PPG_LED_CURRENT100 = 0x1
+}ppg_led_current_range;
+
 
 struct max86150_configuration {
     /* These parameters are entered by user */
-    int                   sampling_frequency;
-    uint8_t               allowed_signals;
+    int                       sampling_frequency;
+    uint8_t                   allowed_signals;
 
-    int                   ppg_sampling_freq;
-    int                   ecg_sampling_freq;
-    int                   ppg_adc_scale;
-    int                   ppg_led_pw;
-    int                   ppg_sample_average;
+    int                       ppg_sampling_freq;
+    int                       ecg_sampling_freq;
+    int                       ppg_adc_scale;
+    int                       ppg_led_pw;
+    int                       ppg_sample_average;
+    int                       ppg_led1_amplitude;
+    int                       ppg_led2_amplitude;
 
     /* These values are writen into registers */
-    ppg_adc_rge           ppg_range;
-    ppg_sample_code       ppg_sampling;
-    ppg_pulses_per_sample ppg_pulses;
-    ppg_pulse_width       ppg_width;
-    ppg_smp_ave           ppg_smp_avg;
+    ppg_adc_rge               ppg_range_reg;
+    ppg_sample_code           ppg_sampling_reg;
+    ppg_pulses_per_sample     ppg_pulses_reg;
+    ppg_pulse_width           ppg_width_reg;
+    ppg_smp_ave               ppg_smp_avg_reg;
+    ppg_led_current_amplitude ppg_led1_amplitude_reg;
+    ppg_led_current_amplitude ppg_led2_amplitude_reg;
+    ppg_led_current_range     ppg_led1_amplitude_range;
+    ppg_led_current_range     ppg_led2_amplitude_range;
 };
 
 #endif /* __MAX86150_defs__ */
