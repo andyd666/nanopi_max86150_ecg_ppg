@@ -46,6 +46,7 @@ static int ppg_set_range(struct max86150_configuration *max86150);
 static int ppg_set_led_pw(struct max86150_configuration *max86150);
 static int ppg_set_smp_ave(struct max86150_configuration *max86150);
 static int ppg_set_leds_range(struct max86150_configuration *max86150);
+static int ecg_set_config1(struct max86150_configuration *max86150);
 
 
 int init_gpio() {
@@ -219,30 +220,23 @@ int init_max86150(struct max86150_configuration *max86150) {
     reg_write_data = 0;
     if (max86150->allowed_signals & (ppg1 | ppg2)) {
         if (ppg_set_leds_range(max86150)) {
-            d_print("%s: cannot set LED current range - %d\n", __func__, max86150);
+            d_print("%s: cannot set LED current range - %d/%d\n",
+                    __func__, max86150->ppg_led1_amplitude, max86150->ppg_led2_amplitude);
+            return -1;
         }
-        if (max86150->allowed_signals & ppg1) {
-            reg_write_data |= ((max86150->ppg_led1_amplitude_range << MAX86150_SHIFT_LED1_RGE) & MAX86150_BIT_LED1_RGE);
-            piLock(0);
-            if (write_max86150_register(MAX86150_REG_LED1_PA, max86150->ppg_led1_amplitude_reg)) {
-                piUnlock(0);
-                d_print("%s: write unsuccessful\n", __func__);
-                return -1;
-            }
-            piUnlock(0);
-        }
-        if (max86150->allowed_signals & ppg2) {
-            reg_write_data |= ((max86150->ppg_led2_amplitude_range << MAX86150_SHIFT_LED2_RGE) & MAX86150_BIT_LED2_RGE);
-            piLock(0);
-            if (write_max86150_register(MAX86150_REG_LED2_PA, max86150->ppg_led2_amplitude_reg)) {
-                piUnlock(0);
-                d_print("%s: write unsuccessful\n", __func__);
-                return -1;
-            }
-            piUnlock(0);
-        }
-
+        reg_write_data |= ((max86150->ppg_led1_amplitude_range << MAX86150_SHIFT_LED1_RGE) & MAX86150_BIT_LED1_RGE);
         piLock(0);
+        if (write_max86150_register(MAX86150_REG_LED1_PA, max86150->ppg_led1_amplitude_reg)) {
+            piUnlock(0);
+            d_print("%s: write unsuccessful\n", __func__);
+            return -1;
+        }
+        reg_write_data |= ((max86150->ppg_led2_amplitude_range << MAX86150_SHIFT_LED2_RGE) & MAX86150_BIT_LED2_RGE);
+        if (write_max86150_register(MAX86150_REG_LED2_PA, max86150->ppg_led2_amplitude_reg)) {
+            piUnlock(0);
+            d_print("%s: write unsuccessful\n", __func__);
+            return -1;
+        }
         if (write_max86150_register(MAX86150_REG_LED_RANGE, reg_write_data)) {
             piUnlock(0);
             d_print("%s: write unsuccessful\n", __func__);
@@ -250,6 +244,23 @@ int init_max86150(struct max86150_configuration *max86150) {
         }
         piUnlock(0);
     }
+
+    /* Form data for MAX86150_REG_ECG_CFG1 */
+    reg_write_data = 0;
+    if (max86150->allowed_signals & ecg) {
+        if (ecg_set_config1(max86150)) {
+            d_print("%s: incorrect sampling rate - %d\n", __func__, max86150->sampling_frequency);
+            return -1;
+        }
+        reg_write_data |= (max86150->ecg_adc_clk_osr_reg) & MAX86150_MASK_ECG_ADC_CLK;
+    }
+    piLock(0);
+    if (write_max86150_register(MAX86150_REG_ECG_CFG1, reg_write_data)) {
+        piUnlock(0);
+        d_print("%s: write unsuccessful\n", __func__);
+        return -1;
+    }
+    piUnlock(0);
 
     return 0;
 }
@@ -526,6 +537,55 @@ static int ppg_set_leds_range(struct max86150_configuration *max86150) {
         d_print("%s: cannot set LED2 current amplitude - %d\n", __func__, max86150->ppg_led2_amplitude);
         return -1;
     }
+
+    return 0;
+}
+
+static int ecg_set_config1(struct max86150_configuration *max86150) {
+    int is_ecg_edc_clk_enabled = 0;
+
+    if (max86150->sampling_frequency == 3200 || max86150->ecg_adc_clk_osr) {
+        is_ecg_edc_clk_enabled = 1;
+    }
+
+    if (!is_ecg_edc_clk_enabled) {
+        switch (max86150->sampling_frequency) {
+            case 1600:
+                max86150->ecg_adc_clk_osr_reg = ECG_ADC_CLK_OSR_0_1600;
+                break;
+            case 800:
+                max86150->ecg_adc_clk_osr_reg = ECG_ADC_CLK_OSR_0_800;
+                break;
+            case 400:
+                max86150->ecg_adc_clk_osr_reg = ECG_ADC_CLK_OSR_0_400;
+                break;
+            case 200:
+                max86150->ecg_adc_clk_osr_reg = ECG_ADC_CLK_OSR_0_200;
+                break;
+            default:
+                d_print("%s: cannot set ECG sampling rate - %d\n", __func__, max86150->sampling_frequency);
+                return -1;
+        }
+    } else {
+        switch (max86150->sampling_frequency) {
+            case 3200:
+                max86150->ecg_adc_clk_osr_reg = ECG_ADC_CLK_OSR_1_3200;
+                break;
+            case 1600:
+                max86150->ecg_adc_clk_osr_reg = ECG_ADC_CLK_OSR_1_1600;
+                break;
+            case 800:
+                max86150->ecg_adc_clk_osr_reg = ECG_ADC_CLK_OSR_1_800;
+                break;
+            case 400:
+                max86150->ecg_adc_clk_osr_reg = ECG_ADC_CLK_OSR_1_400;
+                break;
+            default:
+                d_print("%s: cannot set ECG sampling rate - %d\n", __func__, max86150->sampling_frequency);
+                return -1;
+        }
+    }
+    max86150->ecg_sampling_freq = max86150->sampling_frequency;
 
     return 0;
 }
