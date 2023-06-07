@@ -139,8 +139,12 @@
 #define MAX86150_MASK_ECG_ADC_CLK       (0x7)
 
 /* ECG Configuration 3          */
-#define MAX86150_BIT_PGA_ECG_GAIN       (0x03 << 2)
-#define MAX86150_BIT_IA_GAIN            (0x03 << 0)
+#define MAX86150_MASK_PGA_IA_GAIN       (0x3)
+#define MAX86150_SHIFT_PGA_GAIN         (2)
+#define MAX86150_SHIFT_IA_GAIN          (0)
+#define MAX86150_BIT_PGA_ECG_GAIN       (MAX86150_MASK_ECG_PGA_IA_GAIN << MAX86150_SHIFT_PGA_ECG_GAIN)
+#define MAX86150_BIT_IA_GAIN            (MAX86150_MASK_ECG_PGA_IA_GAIN << MAX86150_SHIFT_IA_GAIN)
+
 
 /* Part ID                      */
 /* Full Register                */
@@ -254,8 +258,21 @@ typedef enum {
     ECG_ADC_CLK_OSR_1_1600 = 5,
     ECG_ADC_CLK_OSR_1_800  = 6,
     ECG_ADC_CLK_OSR_1_400  = 7
-}ecg_adc_clk_adc_osr;
+}ecg_adc_clk_adc_osr_enum;
 
+typedef enum {
+    ECG_PGA_GAIN_1 = 0,
+    ECG_PGA_GAIN_2 = 1,
+    ECG_PGA_GAIN_4 = 2,
+    ECG_PGA_GAIN_8 = 3
+}ecg_pga_gain_enum;
+
+typedef enum {
+    ECG_IA_GAIN_5   = 0,
+    ECG_IA_GAIN_9_5 = 1,
+    ECG_IA_GAIN_20  = 2,
+    ECG_IA_GAIN_50  = 3
+}ecg_ia_gain_enum;
 
 struct max86150_configuration {
     /* These parameters are entered by user */
@@ -270,6 +287,8 @@ struct max86150_configuration {
     int                       ppg_led1_amplitude;
     int                       ppg_led2_amplitude;
     int                       ecg_adc_clk_osr;
+    int                       ecg_pga_gain;
+    int                       ecg_ia_gain;
 
     /* These values are writen into registers */
     ppg_adc_rge               ppg_range_reg;
@@ -281,7 +300,9 @@ struct max86150_configuration {
     ppg_led_current_amplitude ppg_led2_amplitude_reg;
     ppg_led_current_range     ppg_led1_amplitude_range;
     ppg_led_current_range     ppg_led2_amplitude_range;
-    ecg_adc_clk_adc_osr       ecg_adc_clk_osr_reg;
+    ecg_adc_clk_adc_osr_enum  ecg_adc_clk_osr_reg;
+    ecg_pga_gain_enum         ecg_pga_gain_reg;
+    ecg_ia_gain_enum          ecg_ia_gain_reg;
 };
 
 #endif /* __MAX86150_defs__ */

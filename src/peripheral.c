@@ -46,7 +46,8 @@ static int ppg_set_range(struct max86150_configuration *max86150);
 static int ppg_set_led_pw(struct max86150_configuration *max86150);
 static int ppg_set_smp_ave(struct max86150_configuration *max86150);
 static int ppg_set_leds_range(struct max86150_configuration *max86150);
-static int ecg_set_config1(struct max86150_configuration *max86150);
+static int ecg_set_sampling_rate(struct max86150_configuration *max86150);
+static int ecg_set_gains(struct max86150_configuration *max86150);
 
 
 int init_gpio() {
@@ -248,7 +249,7 @@ int init_max86150(struct max86150_configuration *max86150) {
     /* Form data for MAX86150_REG_ECG_CFG1 */
     reg_write_data = 0;
     if (max86150->allowed_signals & ecg) {
-        if (ecg_set_config1(max86150)) {
+        if (ecg_set_sampling_rate(max86150)) {
             d_print("%s: incorrect sampling rate - %d\n", __func__, max86150->sampling_frequency);
             return -1;
         }
@@ -256,6 +257,25 @@ int init_max86150(struct max86150_configuration *max86150) {
     }
     piLock(0);
     if (write_max86150_register(MAX86150_REG_ECG_CFG1, reg_write_data)) {
+        piUnlock(0);
+        d_print("%s: write unsuccessful\n", __func__);
+        return -1;
+    }
+    piUnlock(0);
+
+    /* Form data for MAX86150_REG_ECG_CFG3 */
+    reg_write_data = 0;
+    if (max86150->allowed_signals & ecg) {
+        if (ecg_set_gains(max86150)) {
+            d_print("%s: incorrect gain - PGA %d; IA %d\n",
+                    __func__, max86150->ecg_pga_gain, max86150->ecg_ia_gain);
+            return -1;
+        }
+        reg_write_data |= (((max86150->ecg_pga_gain_reg) & MAX86150_MASK_PGA_IA_GAIN) << MAX86150_SHIFT_PGA_GAIN);
+        reg_write_data |= (((max86150->ecg_ia_gain_reg) & MAX86150_MASK_PGA_IA_GAIN) << MAX86150_SHIFT_IA_GAIN);
+    }
+    piLock(0);
+    if (write_max86150_register(MAX86150_REG_ECG_CFG3, reg_write_data)) {
         piUnlock(0);
         d_print("%s: write unsuccessful\n", __func__);
         return -1;
@@ -541,7 +561,7 @@ static int ppg_set_leds_range(struct max86150_configuration *max86150) {
     return 0;
 }
 
-static int ecg_set_config1(struct max86150_configuration *max86150) {
+static int ecg_set_sampling_rate(struct max86150_configuration *max86150) {
     int is_ecg_edc_clk_enabled = 0;
 
     if (max86150->sampling_frequency == 3200 || max86150->ecg_adc_clk_osr) {
@@ -586,6 +606,47 @@ static int ecg_set_config1(struct max86150_configuration *max86150) {
         }
     }
     max86150->ecg_sampling_freq = max86150->sampling_frequency;
+
+    return 0;
+}
+
+static int ecg_set_gains(struct max86150_configuration *max86150) {
+    switch (max86150->ecg_pga_gain) {
+        case 1:
+            max86150->ecg_pga_gain_reg = ECG_PGA_GAIN_1;
+            break;
+        case 2:
+            max86150->ecg_pga_gain_reg = ECG_PGA_GAIN_2;
+            break;
+        case 4:
+            max86150->ecg_pga_gain_reg = ECG_PGA_GAIN_4;
+            break;
+        case 8:
+            max86150->ecg_pga_gain_reg = ECG_PGA_GAIN_8;
+            break;
+        default:
+            d_print("%s: incorrect ECG PGA gain %d\n", __func__, max86150->ecg_pga_gain);
+            return -1;
+    }
+
+    switch (max86150->ecg_ia_gain) {
+        case 5:
+            max86150->ecg_ia_gain_reg = ECG_IA_GAIN_5;
+            break;
+        case 9:
+        case 10:
+            max86150->ecg_ia_gain_reg = ECG_IA_GAIN_9_5;
+            break;
+        case 20:
+            max86150->ecg_ia_gain_reg = ECG_IA_GAIN_20;
+            break;
+        case 50:
+            max86150->ecg_ia_gain_reg = ECG_IA_GAIN_50;
+            break;
+        default:
+            d_print("%s: incorrect ECG IA gain %d\n", __func__, max86150->ecg_ia_gain);
+            return -1;
+    }
 
     return 0;
 }
