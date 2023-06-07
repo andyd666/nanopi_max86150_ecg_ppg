@@ -143,6 +143,14 @@ static int validate_input(int argc, char **argv, struct max86150_configuration *
                 max86150->ecg_adc_clk_osr = atoi(argv[++i]);
                 continue;
             }
+            if (0 == strcmp(argv[i], "--set-ecg-pga-gain")) {
+                max86150->ecg_pga_gain = atoi(argv[++i]);
+                continue;
+            }
+            if (0 == strcmp(argv[i], "--set-ecg-ia-gain")) {
+                max86150->ecg_ia_gain = atoi(argv[++i]);
+                continue;
+            }
 
             printf("%s, %d: unknown parameter - \"%s\"\n", __func__, __LINE__, argv[i]);
             print_usage(argv);
@@ -166,6 +174,8 @@ static void set_default_max86150_values(struct max86150_configuration *max86150)
     max86150->ppg_led1_amplitude = 25;
     max86150->ppg_led2_amplitude = 25;
     max86150->ecg_adc_clk_osr    = 0;
+    max86150->ecg_pga_gain       = 2;
+    max86150->ecg_ia_gain        = 10;
 }
 
 static void print_usage(char **argv) {
@@ -189,6 +199,9 @@ static void print_usage(char **argv) {
     printf("\t--set-led-pulse-amplitude\t-\tset both LEDs pulse amplitude current.\n");
     printf("\t\t\t\t\t\tIf range is  0 -  52 mA, then step is 1 mA\n");
     printf("\t\t\t\t\t\tIf range is 52 - 102 mA, then step is 2 mA\n");
-    printf("\t--set-ecg-adc-clk\t\t-\tSet ECG ADC CLK [0(default), 1]");
+    printf("\t--set-ecg-adc-clk\t\t-\tSet ECG ADC CLK [0(default), 1]\n");
+    printf("\t--set-ecg-pga-gain\t\t-\tSet ECG PGA gain [1, 2(default), 4, 8]\n");
+    printf("\t--set-ecg-ia-gain\t\t-\tSet ECG IA gain [5, 9/10(default), 20, 50]\n");
+    printf("\t\t\t\t\t\tIA Gain 9/10 is 9.5. Both 9 or 10 can be used to set this value\n");
     printf("\tNote: \"-f200\" is invalid value. Please, separate flags and values\n");
 }
