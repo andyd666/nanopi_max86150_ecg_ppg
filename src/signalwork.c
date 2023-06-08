@@ -1,5 +1,5 @@
 /*
- * filename: timerwork.c
+ * filename: signalwork.c
  */
 
 #include <stdio.h>
@@ -10,7 +10,7 @@
 #include <errno.h>
 #include <filework.h>
 #include <peripheral.h>
-#include <timerwork.h>
+#include <signalwork.h>
 
 #define UNUSED(x) ((void)x)
 
@@ -20,6 +20,7 @@ static void set_timer_specs(struct sigevent *s_event,
                             uint32_t period_ns);
 static uint32_t sampling_freq_2_period_ns(uint32_t samp_freq);
 static void max86150_timer_action(int sig, siginfo_t *si, void *uc);
+static void sigint_handler(int sig);
 
 static timer_t read_periodic_timer;
 
@@ -48,7 +49,13 @@ int start_max86150_timer(uint32_t samp_freq) {
         return -1;
     }
 
+    d_print("%s: timer set timerid = %d\n", __func__, read_periodic_timer);
+
     return 0;
+}
+
+int stop_max86150_timer() {
+    return timer_delete(read_periodic_timer);
 }
 
 
@@ -118,5 +125,29 @@ static void max86150_timer_action(int sig, siginfo_t *si, void *uc) {
     UNUSED(uc);
 
     printf("%s: stub print\n", __func__);
+}
 
+int register_term_signal() {
+    struct sigaction s_action = {0};
+
+    sigemptyset(&s_action.sa_mask);
+    s_action.sa_flags = 0;
+    s_action.sa_handler = sigint_handler;
+
+    if (sigaction(SIGINT, &s_action, NULL) == -1) {
+        d_print("%s: cannot register signal %d\n", __func__, SIGINT);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int sigint_status = 0;
+static void sigint_handler(int sig) {
+    printf("%d received\n", sig);
+    sigint_status = sig;
+}
+
+int get_sigint_status() {
+    return sigint_status;
 }

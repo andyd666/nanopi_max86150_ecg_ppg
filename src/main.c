@@ -5,9 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <max86150_defs.h>
 #include <filework.h>
 #include <peripheral.h>
+#include <signalwork.h>
 
 #define UNUSED(x) ((void)x)
 
@@ -43,14 +45,26 @@ int main(int argc, char **argv) {
         goto cant_start;
     }
 
-    if (start_recording(max86150.sampling_frequency)) {
+    if (register_term_signal()) {
+        retval = -1;
+        goto cant_start;
+    }
+
+    if (start_recording(&max86150)) {
         retval = 1;
         goto cant_start;
     }
 
     while (1) {
-
+        sleep(0xffffffff);
+        if (get_sigint_status()) break;
     }
+
+    if (stop_recording()) {
+        retval = -1;
+        goto cant_start;
+    }
+    /* TODO: collect last data */
 
 cant_start:
 

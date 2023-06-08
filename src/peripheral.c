@@ -22,12 +22,12 @@
 #include <linux/i2c-dev.h>
 #include <linux/i2c.h>
 #include <filework.h>
-#include <timerwork.h>
 #include <max86150_defs.h>
 #include <wiringPi.h>
 #include <wiringPiI2C.h>
+#include "../include/signalwork.h"
 
-
+#define UNUSED(x) ((void)x)
 
 #define I2C0_WPI_SDA_PIN (8)
 #define I2C0_WPI_SCL_PIN (9)
@@ -118,58 +118,6 @@ int init_max86150(struct max86150_configuration *max86150) {
     if (reset_device()) {
         d_print("%s: cannot reset device\n", __func__);
         piUnlock(0);
-        return -1;
-    }
-    piUnlock(0);
-
-    /* Form data for MAX86150_REG_SYS_CTL */
-    piLock(0);
-    if (write_max86150_register(MAX86150_REG_SYS_CTL, MAX86150_BIT_FIFO_EN)) {
-        d_print("%s: cannot enable FIFO\n", __func__);
-        piUnlock(0);
-        return -1;
-    }
-    piUnlock(0);
-
-    /* Form data for MAX86150_REG_FIFO_DCR1 */
-    reg_write_data = 0;
-    enabled_signals = 0;
-    for (i = 0; i < TOTAL_SIGNALS; i++) {
-        if ((1 << i) & max86150->allowed_signals) {
-            enabled_signals++;
-        }
-        if (enabled_signals == 1) {
-            reg_write_data |= set_dcr_slot((1 << i) & max86150->allowed_signals);
-        } else if (enabled_signals == 2) {
-            reg_write_data |= (set_dcr_slot((1 << i) & max86150->allowed_signals) << 4);
-            break;
-        }
-    }
-    piLock(0);
-    if (write_max86150_register(MAX86150_REG_FIFO_DCR1, reg_write_data)) {
-        piUnlock(0);
-        d_print("%s: write unsuccessful\n", __func__);
-        return -1;
-    }
-    piUnlock(0);
-
-    /* Form data for MAX86150_REG_FIFO_DCR2 */
-    reg_write_data = 0;
-    for (++i; i < TOTAL_SIGNALS; i++) {
-        if ((1 << i) & max86150->allowed_signals) {
-            enabled_signals++;
-        }
-        if (enabled_signals == 3) {
-            reg_write_data |= set_dcr_slot((1 << i) & max86150->allowed_signals);
-        } else if (enabled_signals == 4) {
-            reg_write_data |= (set_dcr_slot((1 << i) & max86150->allowed_signals) << 4);
-            break;
-        }
-    }
-    piLock(0);
-    if (write_max86150_register(MAX86150_REG_FIFO_DCR2, reg_write_data)) {
-        piUnlock(0);
-        d_print("%s: write unsuccessful\n", __func__);
         return -1;
     }
     piUnlock(0);
@@ -282,15 +230,91 @@ int init_max86150(struct max86150_configuration *max86150) {
     }
     piUnlock(0);
 
+    /* Form data for MAX86150_REG_FIFO_DCR1 */
+    reg_write_data = 0;
+    enabled_signals = 0;
+    for (i = 0; i < TOTAL_SIGNALS; i++) {
+        if ((1 << i) & max86150->allowed_signals) {
+            enabled_signals++;
+        }
+        if (enabled_signals == 1) {
+            reg_write_data |= set_dcr_slot((1 << i) & max86150->allowed_signals);
+        } else if (enabled_signals == 2) {
+            reg_write_data |= (set_dcr_slot((1 << i) & max86150->allowed_signals) << 4);
+            break;
+        }
+    }
+    piLock(0);
+    if (write_max86150_register(MAX86150_REG_FIFO_DCR1, reg_write_data)) {
+        piUnlock(0);
+        d_print("%s: write unsuccessful\n", __func__);
+        return -1;
+    }
+    piUnlock(0);
+
+    /* Form data for MAX86150_REG_FIFO_DCR2 */
+    reg_write_data = 0;
+    for (++i; i < TOTAL_SIGNALS; i++) {
+        if ((1 << i) & max86150->allowed_signals) {
+            enabled_signals++;
+        }
+        if (enabled_signals == 3) {
+            reg_write_data |= set_dcr_slot((1 << i) & max86150->allowed_signals);
+        } else if (enabled_signals == 4) {
+            reg_write_data |= (set_dcr_slot((1 << i) & max86150->allowed_signals) << 4);
+            break;
+        }
+    }
+    piLock(0);
+    if (write_max86150_register(MAX86150_REG_FIFO_DCR2, reg_write_data)) {
+        piUnlock(0);
+        d_print("%s: write unsuccessful\n", __func__);
+        return -1;
+    }
+    piUnlock(0);
+
+    /* Form data for MAX86150_REG_SYS_CTL */
+    piLock(0);
+    if (write_max86150_register(MAX86150_REG_SYS_CTL, MAX86150_BIT_FIFO_EN)) {
+        d_print("%s: cannot enable FIFO\n", __func__);
+        piUnlock(0);
+        return -1;
+    }
+    piUnlock(0);
+
     return 0;
 }
 
 
-int start_recording(uint32_t samp_freq) {
+int start_recording(struct max86150_configuration *max86150) {
     piLock(0);
 
     piUnlock(0);
-    start_max86150_timer(samp_freq);
+    start_max86150_timer(max86150->sampling_frequency);
+    return 0;
+}
+
+int stop_recording() {
+    piLock(0);
+    if(write_max86150_register(MAX86150_REG_SYS_CTL, 0)) {
+        piUnlock(0);
+        d_print("%s: cannot stop capturing\n", __func__);
+    }
+    if(write_max86150_register(MAX86150_REG_FIFO_DCR1, 0)) {
+        piUnlock(0);
+        d_print("%s: cannot stop capturing\n", __func__);
+    }
+    if(write_max86150_register(MAX86150_REG_FIFO_DCR1, 0)) {
+        piUnlock(0);
+        d_print("%s: cannot stop capturing\n", __func__);
+    }
+    piUnlock(0);
+
+    if (stop_max86150_timer()) {
+        d_print("%s: cannot stop timer\n");
+        return -1;
+    }
+
     return 0;
 }
 
