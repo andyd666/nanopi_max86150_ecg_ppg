@@ -4,7 +4,7 @@ CFLAGS=-I include -g0 -O2 -Wall -Wextra -lwiringPi -lpthread -lrt
 CFILES=./src/main.c \
        ./src/filework.c \
        ./src/peripheral.c \
-       ./src/timerwork.c
+       ./src/signalwork.c
 
 build_all:
 	mkdir -p build

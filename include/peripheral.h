@@ -17,7 +17,8 @@ int init_gpio();
 void deinit_gpio();
 int init_max86150(struct max86150_configuration *max86150);
 int reset_device();
-int start_recording(uint32_t samp_freq);
+int start_recording(struct max86150_configuration *max86150);
+int stop_recording();
 
 
 #endif /* INCLUDE_PERIPHERAL_H_ */
