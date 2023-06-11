@@ -1,6 +1,6 @@
 CC=gcc
 BIN=start_max86150
-CFLAGS=-I include -g0 -O2 -Wall -Wextra -lwiringPi -lpthread -lrt -DLITTLE_ENDIAN
+CFLAGS=-I include -g0 -O2 -Wall -Wextra -lwiringPi -lpthread -lrt
 CFILES=./src/main.c \
        ./src/filework.c \
        ./src/peripheral.c \

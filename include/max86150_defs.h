@@ -12,6 +12,11 @@
 #define BITS_PER_FIFO_READ      (BYTES_PER_FIFO_READ * 8)
 #define SAMPLES_PER_SINGLE_READ (8)
 
+/*
+ * This mask is needed to pad data with "0"
+ * */
+#define PPG_SIGNAL_MASK         (0x7ffff)
+
 #define MAX86150_DEV_ID (0x5e)
 
 /* Status Registers */

@@ -2,10 +2,6 @@
  * filename: main.c
  */
 
-#if defined(LITTLE_ENDIAN) && defined(BIG_ENDIAN)
-#error /* Both Little-Endian and Big-Endian cannot be enabled */
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +29,7 @@ int main(int argc, char **argv) {
     ssize_t bytes_written;
     int write_buf_len_int;
     int binary_capture_file;
+    int num_of_ppg; /* We need to know number of PPG signals to correctly pad with "0" elder bits */
 
     init_debug();
 
@@ -64,6 +61,8 @@ int main(int argc, char **argv) {
         goto cant_start;
     }
 
+    num_of_ppg  = !!(max86150.allowed_signals & ppg1);
+    num_of_ppg += !!(max86150.allowed_signals & ppg2);
     write_buf_len_int = max86150.number_of_bytes_per_fifo_read / 3;
     write_buf = (uint32_t *)malloc(write_buf_len_int * sizeof(typeof(write_buf[0])));
     if(!write_buf) {
@@ -79,10 +78,12 @@ int main(int argc, char **argv) {
         retval = -1;
         goto cant_start;
     } else {
-        uint32_t allowed_signals = max86150.allowed_signals;
+        uint32_t metadata = max86150.allowed_signals;
 
-        bytes_written = write(binary_capture_file, &allowed_signals, sizeof(allowed_signals));
-        if (sizeof(allowed_signals) != bytes_written) {
+        metadata |= ((max86150.sampling_frequency & 0xffff) << 8);
+
+        bytes_written = write(binary_capture_file, &metadata, sizeof(metadata));
+        if (sizeof(metadata) != bytes_written) {
             d_print("%s: cannot write first byte of file, fd = %d\n", __func__, binary_capture_file);
             d_print("%s: errno = %d(%s)\n", __func__, errno, strerror(errno));
             retval = -1;
@@ -152,29 +153,24 @@ int main(int argc, char **argv) {
                 break;
             }
             for (j = 0; j < write_buf_len_int; j++) {
-#if defined(LITTLE_ENDIAN)
                 write_buf[j] = (read_buf[j * BYTES_PER_FIFO_READ + 2] << 0) |
                                (read_buf[j * BYTES_PER_FIFO_READ + 1] << 8) |
                                (read_buf[j * BYTES_PER_FIFO_READ + 0] << 16);
-#endif /* defined(LITTLE_ENDIAN) */
-#if defined(BIG_ENDIAN)
-                write_buf[j] = (read_buf[j * BYTES_PER_FIFO_READ + 2] << 16) |
-                               (read_buf[j * BYTES_PER_FIFO_READ + 1] << 8) |
-                               (read_buf[j * BYTES_PER_FIFO_READ + 0] << 0);
-#endif /* defined(BIG_ENDIAN) */
+                if (j < num_of_ppg) {
+                    write_buf[j] &= PPG_SIGNAL_MASK;
+                }
+            }
+            bytes_written = write(binary_capture_file, write_buf, write_buf_len_int * sizeof(uint32_t));
+            if ((write_buf_len_int * sizeof(uint32_t)) != (uint32_t)bytes_written) {
+                d_print("%s: binary write failed, bytes written %d, fd = %d\n",
+                        __func__, bytes_written, binary_capture_file);
+                d_print("%s: errno = %d(%s)\n", __func__, errno, strerror(errno));
+                retval = -1;
+                break;
             }
         }
         if (i != to_read_count) break;
         piUnlock(0);
-
-        bytes_written = write(binary_capture_file, write_buf, write_buf_len_int * sizeof(uint32_t));
-        if ((write_buf_len_int * sizeof(uint32_t)) != (uint32_t)bytes_written) {
-            d_print("%s: binary write failed, bytes written %d, fd = %d\n",
-                    __func__, bytes_written, binary_capture_file);
-            d_print("%s: errno = %d(%s)\n", __func__, errno, strerror(errno));
-            retval = -1;
-            break;
-        }
     }
 
     if (stop_recording()) {
@@ -316,7 +312,7 @@ static void set_default_max86150_values(struct max86150_configuration *max86150)
     max86150->number_of_bytes_per_fifo_read = 0;
     max86150->sampling_frequency            = 200;
     max86150->ppg_pulses_reg                = 1;
-    max86150->ppg_adc_scale                 = 4;
+    max86150->ppg_adc_scale                 = 32;
     max86150->ppg_led_pw                    = 50;
     max86150->ppg_sample_average            = 1;
     max86150->ppg_led1_amplitude            = 25;
