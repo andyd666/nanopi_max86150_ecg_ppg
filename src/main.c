@@ -2,10 +2,17 @@
  * filename: main.c
  */
 
+#if defined(LITTLE_ENDIAN) && defined(BIG_ENDIAN)
+#error /* Both Little-Endian and Big-Endian cannot be enabled */
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <string.h>
+#include <wiringPi.h>
+#include <wiringPiI2C.h>
 #include <max86150_defs.h>
 #include <filework.h>
 #include <peripheral.h>
@@ -21,6 +28,11 @@ static void print_usage(char **argv);
 int main(int argc, char **argv) {
     int retval = 0;
     struct max86150_configuration max86150 = {0};
+    uint8_t *read_buf = NULL;
+    uint32_t *write_buf = NULL;
+    ssize_t bytes_written;
+    int write_buf_len_int;
+    int binary_capture_file;
 
     init_debug();
 
@@ -45,6 +57,41 @@ int main(int argc, char **argv) {
         goto cant_start;
     }
 
+    read_buf = (uint8_t *)malloc(max86150.number_of_bytes_per_fifo_read * sizeof(typeof(read_buf[0])));
+    if(!read_buf) {
+        d_print("%s: cannot allocate memory for read_buf\n", __func__);
+        retval = -1;
+        goto cant_start;
+    }
+
+    write_buf_len_int = max86150.number_of_bytes_per_fifo_read / 3;
+    write_buf = (uint32_t *)malloc(write_buf_len_int * sizeof(typeof(write_buf[0])));
+    if(!write_buf) {
+        d_print("%s: cannot allocate memory for write_buf\n", __func__);
+        retval = -1;
+        goto cant_start;
+    }
+
+    binary_capture_file = open_capture_file(max86150.capture_file_name);
+    if (-1 == binary_capture_file) {
+        d_print("%s cannot open capture file \"%s\"\n",
+                __func__, max86150.capture_file_name);
+        retval = -1;
+        goto cant_start;
+    } else {
+        uint32_t allowed_signals = max86150.allowed_signals;
+
+        bytes_written = write(binary_capture_file, &allowed_signals, sizeof(allowed_signals));
+        if (sizeof(allowed_signals) != bytes_written) {
+            d_print("%s: cannot write first byte of file, fd = %d\n", __func__, binary_capture_file);
+            d_print("%s: errno = %d(%s)\n", __func__, errno, strerror(errno));
+            retval = -1;
+            goto cant_start;
+        }
+    }
+
+    d_print("%s: read_buf_size %d\n", __func__, max86150.number_of_bytes_per_fifo_read * sizeof(typeof(read_buf[0])));
+
     if (register_term_signal()) {
         retval = -1;
         goto cant_start;
@@ -56,19 +103,91 @@ int main(int argc, char **argv) {
     }
 
     while (1) {
+        uint8_t register_buffer[3];
+        uint8_t read_pointer_val  = 0;
+        uint8_t ovc_pointer_val   = 0;
+        uint8_t write_pointer_val = 0;
+        int i;
+        int to_read_count;
+
         sleep(0xffffffff);
         if (get_sigint_status()) break;
+
+        piLock(0);
+        if(read_max86150_register(MAX86150_REG_FIFO_WP, register_buffer, 3))
+        {
+            piUnlock(0);
+            d_print("%s: read FIFO WP/OVC/RP failed\n", __func__);
+            break;
+        }
+        write_pointer_val = register_buffer[0];
+        ovc_pointer_val   = register_buffer[1];
+        read_pointer_val  = register_buffer[2];
+
+        if (ovc_pointer_val) {
+            piUnlock(0);
+            d_print("%s: FIFO Overflow counter is not empty! Stopping recording\n", __func__);
+            break;
+        }
+
+        to_read_count = (write_pointer_val > read_pointer_val) ?
+                        (write_pointer_val - read_pointer_val) :
+                        (32 + write_pointer_val - read_pointer_val);
+
+        if (to_read_count < SAMPLES_PER_SINGLE_READ) {
+            to_read_count = 0;
+        } else if (to_read_count < (SAMPLES_PER_SINGLE_READ * 2)) {
+            to_read_count = SAMPLES_PER_SINGLE_READ;
+        } else if (to_read_count < (SAMPLES_PER_SINGLE_READ * 3)) {
+            to_read_count = SAMPLES_PER_SINGLE_READ * 2;
+        } else {
+            to_read_count = SAMPLES_PER_SINGLE_READ * 3;
+        }
+
+        for (i = 0; i < to_read_count; i++) {
+            int j;
+            if (read_max86150_FIFO_multiple(max86150.number_of_bytes_per_fifo_read, read_buf)) {
+                piUnlock(0);
+                d_print("%s: FIFO read failed\n", __func__);
+                break;
+            }
+            for (j = 0; j < write_buf_len_int; j++) {
+#if defined(LITTLE_ENDIAN)
+                write_buf[j] = (read_buf[j * BYTES_PER_FIFO_READ + 2] << 0) |
+                               (read_buf[j * BYTES_PER_FIFO_READ + 1] << 8) |
+                               (read_buf[j * BYTES_PER_FIFO_READ + 0] << 16);
+#endif /* defined(LITTLE_ENDIAN) */
+#if defined(BIG_ENDIAN)
+                write_buf[j] = (read_buf[j * BYTES_PER_FIFO_READ + 2] << 16) |
+                               (read_buf[j * BYTES_PER_FIFO_READ + 1] << 8) |
+                               (read_buf[j * BYTES_PER_FIFO_READ + 0] << 0);
+#endif /* defined(BIG_ENDIAN) */
+            }
+        }
+        if (i != to_read_count) break;
+        piUnlock(0);
+
+        bytes_written = write(binary_capture_file, write_buf, write_buf_len_int * sizeof(uint32_t));
+        if ((write_buf_len_int * sizeof(uint32_t)) != (uint32_t)bytes_written) {
+            d_print("%s: binary write failed, bytes written %d, fd = %d\n",
+                    __func__, bytes_written, binary_capture_file);
+            d_print("%s: errno = %d(%s)\n", __func__, errno, strerror(errno));
+            retval = -1;
+            break;
+        }
     }
 
     if (stop_recording()) {
+        d_print("%s: cannot stop recording. Physical device reboot may be required\n", __func__);
         retval = -1;
         goto cant_start;
     }
     /* TODO: collect last data */
 
 cant_start:
-
+    if (read_buf) free(read_buf);
     deinit_gpio();
+    close_capture_file();
     close_debug();
     return retval;
 }
@@ -165,6 +284,19 @@ static int validate_input(int argc, char **argv, struct max86150_configuration *
                 max86150->ecg_ia_gain = atoi(argv[++i]);
                 continue;
             }
+            if (0 == strcmp(argv[i], "--capture_file_name")) {
+                size_t size;
+
+                i++;
+                size = strlen(argv[i]);
+                if (size >= MAX_FILENAME_LENGTH) {
+                    d_print("%s file name too long %d\n", __func__, size);
+                    return -1;
+                }
+                memcpy(max86150->capture_file_name, argv[i], size);
+                max86150->capture_file_name[size] = 0;
+                continue;
+            }
 
             printf("%s, %d: unknown parameter - \"%s\"\n", __func__, __LINE__, argv[i]);
             print_usage(argv);
@@ -180,21 +312,27 @@ static int validate_input(int argc, char **argv, struct max86150_configuration *
 }
 
 static void set_default_max86150_values(struct max86150_configuration *max86150) {
-    max86150->sampling_frequency = 200;
-    max86150->ppg_pulses_reg     = 1;
-    max86150->ppg_adc_scale      = 4;
-    max86150->ppg_led_pw         = 50;
-    max86150->ppg_sample_average = 1;
-    max86150->ppg_led1_amplitude = 25;
-    max86150->ppg_led2_amplitude = 25;
-    max86150->ecg_adc_clk_osr    = 0;
-    max86150->ecg_pga_gain       = 2;
-    max86150->ecg_ia_gain        = 10;
+    max86150->capture_file_name[0]          = 0;
+    max86150->number_of_bytes_per_fifo_read = 0;
+    max86150->sampling_frequency            = 200;
+    max86150->ppg_pulses_reg                = 1;
+    max86150->ppg_adc_scale                 = 4;
+    max86150->ppg_led_pw                    = 50;
+    max86150->ppg_sample_average            = 1;
+    max86150->ppg_led1_amplitude            = 25;
+    max86150->ppg_led2_amplitude            = 25;
+    max86150->ecg_adc_clk_osr               = 0;
+    max86150->ecg_pga_gain                  = 2;
+    max86150->ecg_ia_gain                   = 10;
+
+    memcpy(max86150->capture_file_name, DEFAULT_BINARY_NAME, strlen(DEFAULT_BINARY_NAME));
+    max86150->capture_file_name[strlen(DEFAULT_BINARY_NAME)] = 0;
 }
 
 static void print_usage(char **argv) {
     printf("%s usage:\n", argv[0]);
-    printf("\t-h\t\t\t\t-\tshow usage\n\n");
+    printf("\t-h\t\t\t\t-\tshow usage\n");
+    printf("\t---capture_file_name\t\t-\tSet output data file name\n\n");
     printf("\t--ppg1\t\t\t\t-\ttoggle on PPG1\n");
     printf("\t--ppg2\t\t\t\t-\ttoggle on PPG2\n");
     printf("\t--ppg\t\t\t\t-\ttoggle on both PPG signals\n");

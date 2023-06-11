@@ -123,8 +123,8 @@ static void max86150_timer_action(int sig, siginfo_t *si, void *uc) {
     UNUSED(sig);
     UNUSED(si);
     UNUSED(uc);
-
-    printf("%s: stub print\n", __func__);
+    /* This timer just breaks "sleep" in main().
+     * All the necessary stuff is being made there */
 }
 
 int register_term_signal() {
