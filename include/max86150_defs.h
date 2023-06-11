@@ -6,9 +6,11 @@
 #define __MAX86150_defs__
 
 #include <stdint.h>
+#include <filework.h>
 
-#define BYTES_PER_FIFO_READ (3)
-#define BITS_PER_FIFO_READ  (BYTES_PER_FIFO_READ << 3)
+#define BYTES_PER_FIFO_READ     (3)
+#define BITS_PER_FIFO_READ      (BYTES_PER_FIFO_READ * 8)
+#define SAMPLES_PER_SINGLE_READ (8)
 
 #define MAX86150_DEV_ID (0x5e)
 
@@ -278,6 +280,8 @@ struct max86150_configuration {
     /* These parameters are entered by user */
     int                       sampling_frequency;
     uint8_t                   allowed_signals;
+    int                       number_of_bytes_per_fifo_read;
+    char                      capture_file_name[MAX_FILENAME_LENGTH];
 
     int                       ppg_sampling_freq;
     int                       ecg_sampling_freq;

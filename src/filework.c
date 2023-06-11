@@ -4,16 +4,32 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdarg.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <filework.h>
 
-
-static char *debug_fname = "/tmp/max86150_logs.txt";
+static int binary_capture;
 static FILE *debug_file;
 
+int open_capture_file(char *name) {
+    if (name[0]) {
+        binary_capture = open(name, O_CREAT|O_EXCL|O_RDWR, S_IRWXU);
+    } else {
+        binary_capture = open(DEFAULT_BINARY_NAME, O_CREAT|O_EXCL|O_RDWR, S_IRWXU);
+    }
+    return binary_capture;
+}
+
+int close_capture_file() {
+    return (binary_capture != -1) ? close(binary_capture) : -1;
+}
 
 void init_debug() {
-    debug_file = fopen(debug_fname, "a");
+    debug_file = fopen(DEBUG_FNAME, "a");
     if (!debug_file) {
         printf("%s: Cannot open debug file\n", __func__);
     }

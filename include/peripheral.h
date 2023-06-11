@@ -19,6 +19,9 @@ int init_max86150(struct max86150_configuration *max86150);
 int reset_device();
 int start_recording(struct max86150_configuration *max86150);
 int stop_recording();
+int write_max86150_register(int reg, int data);
+int read_max86150_register(int reg, uint8_t *data, int num);
+int read_max86150_FIFO_multiple(int count, uint8_t *data);
 
 
 #endif /* INCLUDE_PERIPHERAL_H_ */

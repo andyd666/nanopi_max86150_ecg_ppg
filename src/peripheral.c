@@ -17,15 +17,16 @@
  */
 
 #include <stdint.h>
-#include <peripheral.h>
 #include <sys/ioctl.h>
 #include <linux/i2c-dev.h>
 #include <linux/i2c.h>
+#include <peripheral.h>
+#include <signalwork.h>
 #include <filework.h>
 #include <max86150_defs.h>
 #include <wiringPi.h>
 #include <wiringPiI2C.h>
-#include "../include/signalwork.h"
+
 
 #define UNUSED(x) ((void)x)
 
@@ -37,8 +38,6 @@ static int max86150_fd;
 
 static dcr_slot set_dcr_slot(uint16_t sig);
 static int init_i2c0_for_max86150();
-static int write_max86150_register(int reg, int data);
-static int read_max86150_register(int reg, uint8_t *data);
 static int check_sampling_frequency(struct max86150_configuration *max86150);
 static int ppg_check_pulses_per_sample(struct max86150_configuration *max86150);
 static int ppg_convert_freq_to_register_value(struct max86150_configuration *max86150);
@@ -51,7 +50,7 @@ static int ecg_set_gains(struct max86150_configuration *max86150);
 
 
 int init_gpio() {
-    uint8_t reg_rd_buf[1] = {0};
+    uint8_t reg_rd_buf = 0;
 
     if (wiringPiSetup()) {
         d_print("%s: wiringPiSetup() failed\n", __func__);
@@ -66,12 +65,12 @@ int init_gpio() {
     d_print("%s: max86150_fd = %d\n", __func__, max86150_fd);
 
     piLock(0);
-    if (read_max86150_register(MAX86150_REG_PART_ID, reg_rd_buf)) {
+    if (read_max86150_register(MAX86150_REG_PART_ID, &reg_rd_buf, 1)) {
         d_print("%s: read unsuccessful\n", __func__);
     }
-    if (MAX86150_PART_ID != reg_rd_buf[0]) {
+    if (MAX86150_PART_ID != reg_rd_buf) {
         d_print("%s: MAX86150 Part ID is 0x%02x. Must be 0x%02x\n",
-                __func__, reg_rd_buf[0], MAX86150_PART_ID);
+                __func__, reg_rd_buf, MAX86150_PART_ID);
         piUnlock(0);
         return -1;
     }
@@ -108,6 +107,17 @@ int init_max86150(struct max86150_configuration *max86150) {
         d_print("%s: cannot allow every signal\n", __func__);
         return -1;
     }
+
+    if (max86150->allowed_signals & (pilot1 | pilot2)) {
+        d_print("%s: pilot signals currently not supported\n", __func__);
+        return -1;
+    }
+
+    if (max86150->allowed_signals & ppg1) max86150->number_of_bytes_per_fifo_read += 3;
+    if (max86150->allowed_signals & ppg2) max86150->number_of_bytes_per_fifo_read += 3;
+    if (max86150->allowed_signals & ecg)  max86150->number_of_bytes_per_fifo_read += 3;
+
+    d_print("%s: Bytes per FIFO read: %d\n", __func__, max86150->number_of_bytes_per_fifo_read);
 
     if (check_sampling_frequency(max86150)) {
         d_print("%s: wrong baudrate\n", __func__);
@@ -675,7 +685,7 @@ static int ecg_set_gains(struct max86150_configuration *max86150) {
     return 0;
 }
 
-static int write_max86150_register(int reg, int data) {
+int write_max86150_register(int reg, int data) {
     int wr_bytes = 0;
     char buf[2];
 
@@ -688,7 +698,7 @@ static int write_max86150_register(int reg, int data) {
     return (wr_bytes == 2) ? 0 : wr_bytes;
 }
 
-static int read_max86150_register(int reg, uint8_t *data) {
+int read_max86150_register(int reg, uint8_t *data, int num) {
     uint8_t outbuf[1];
     struct i2c_msg msgs[2];
     struct i2c_rdwr_ioctl_data msgset[1];
@@ -700,13 +710,42 @@ static int read_max86150_register(int reg, uint8_t *data) {
 
     msgs[1].addr = MAX86150_DEV_ID;
     msgs[1].flags = I2C_M_RD;
-    msgs[1].len = 1;
+    msgs[1].len = num;
     msgs[1].buf = data;
 
     msgset[0].msgs = msgs;
     msgset[0].nmsgs = 2;
 
     outbuf[0] = reg;
+
+    *(msgs[1].buf) = 0;
+    if (ioctl(max86150_fd, I2C_RDWR, &msgset) < 0) {
+        d_print("%s: ioctl(I2C_RDWR) in i2c_read\n", __func__);
+        return -1;
+    }
+
+    return 0;
+}
+
+int read_max86150_FIFO_multiple(int count, uint8_t *data) {
+    uint8_t outbuf[1];
+    struct i2c_msg msgs[2];
+    struct i2c_rdwr_ioctl_data msgset[1];
+
+    msgs[0].addr = MAX86150_DEV_ID;
+    msgs[0].flags = 0;
+    msgs[0].len = 1;
+    msgs[0].buf = outbuf;
+
+    msgs[1].addr = MAX86150_DEV_ID;
+    msgs[1].flags = I2C_M_RD;
+    msgs[1].len = count;
+    msgs[1].buf = data;
+
+    msgset[0].msgs = msgs;
+    msgset[0].nmsgs = 2;
+
+    outbuf[0] = MAX86150_REG_FIFO_DR;
 
     *(msgs[1].buf) = 0;
     if (ioctl(max86150_fd, I2C_RDWR, &msgset) < 0) {
@@ -727,4 +766,3 @@ int reset_device() {
     d_print("wr_bytes = %d\n", wr_bytes);
     return (wr_bytes == 2) ? 0 : wr_bytes;
 }
-
